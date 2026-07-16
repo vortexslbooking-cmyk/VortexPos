@@ -16,6 +16,11 @@ locales desde un solo sitio.
 - **Panel de proveedor** (`/`) — tablero web con todos tus locales: estado, plan,
   ventas acumuladas y última conexión. Crear licencias, ver ventas en vivo y
   **suspender/activar** por impago con un clic.
+- **Carta remota por cliente** — desde el detalle de cada local, botón **“Editar carta”**:
+  añadir, retirar, agotar o cambiar precios de productos y categorías. Las tablets del
+  cliente reciben la carta nueva en su siguiente sincronización (menos de 1 minuto).
+- **Historial de cierres Z** con arqueo de efectivo y descuadre por cierre, y KPI de
+  descuadre acumulado por local.
 - **API de sincronización** (`/api/sync`) — cada tablet guarda en local (sigue
   funcionando sin internet) y sincroniza cuando hay conexión.
 - **Multi-dispositivo** — varias tablets del mismo local comparten la misma caja.
