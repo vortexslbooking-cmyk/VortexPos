@@ -118,6 +118,31 @@ DEV_B = {"Authorization":"Bearer "+r.json()["token"]}
 r = c.post("/api/sync", headers=DEV_B, json={})
 ok("aislamiento multi-inquilino: local 2 no ve ventas del local 1", len(r.json()["records"])==0)
 
+# 16) el proveedor edita la carta en remoto (añadir/retirar) y el dispositivo la recibe
+r = c.put(f"/api/provider/tenants/{t['id']}/menu", headers=PROV,
+          json={"json":[{"cat":"Cócteles","station":"barra",
+                         "items":[{"name":"Mojito Cloud","price":9.5},{"name":"Retirado","price":1,"off":True}]}]})
+ok("proveedor guarda carta remota", r.status_code==200 and r.json()["ok"] and r.json()["categorias"]==1)
+
+r = c.get(f"/api/provider/tenants/{t['id']}/menu", headers=PROV)
+m = r.json()["menu"]
+ok("GET carta devuelve lo guardado (con id asignado)",
+   m[0]["items"][0]["name"]=="Mojito Cloud" and "id" in m[0]["items"][0] and m[0]["items"][1].get("off") is True)
+
+r = c.post("/api/device/login", json={"license_key":LIC,"pin":"4821"})
+DEV3 = {"Authorization":"Bearer "+r.json()["token"]}
+r = c.post("/api/sync", headers=DEV3, json={})
+docs = r.json()["documents"]
+ok("dispositivo recibe la carta del proveedor",
+   any(cat.get("cat")=="Cócteles" for cat in docs.get("menu",{}).get("json",[])))
+
+# 17) LWW: un push del dispositivo con carta ANTIGUA no pisa la del proveedor
+r = c.post("/api/sync", headers=DEV3, json={"documents":{"menu":{
+    "json":[{"cat":"Vieja","station":"cocina","items":[]}],
+    "updated_at":"2020-01-01T00:00:00+00:00"}}})
+ok("carta antigua del dispositivo no pisa la del proveedor (LWW)",
+   any(cat.get("cat")=="Cócteles" for cat in r.json()["documents"]["menu"]["json"]))
+
 passed = sum(1 for c_,_ in checks if c_)
 print(f"\n{passed}/{len(checks)} comprobaciones superadas")
 if passed != len(checks):

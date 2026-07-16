@@ -91,6 +91,16 @@
   .zline.tot span,.zline.tot b{color:var(--cloud)}
   .zcaret{color:var(--muted);font-size:11px;transition:.2s}
   .zrow.open .zcaret{transform:rotate(90deg)}
+  /* Editor de carta remota */
+  .me-in{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:8px 10px;font-weight:600;font-size:13px}
+  .me-in:focus{outline:none;border-color:var(--brand)}
+  .me-cat{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:rgba(255,255,255,.02)}
+  .me-cat-head{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+  .me-cat-head input{flex:1;min-width:0;font-weight:800}
+  .me-row{display:flex;gap:8px;align-items:center;padding:5px 0;border-top:1px dashed var(--line)}
+  .me-row input.nm{flex:1;min-width:0}
+  .me-row input.pr{width:84px;text-align:right}
+  .me-row.off input.nm{opacity:.5;text-decoration:line-through}
 </style>
 </head>
 <body>
@@ -151,6 +161,11 @@
 <!-- MODAL detalle -->
 <div class="scrim" id="detailScrim">
   <div class="modal" id="detailBody"></div>
+</div>
+
+<!-- MODAL editor de carta remota -->
+<div class="scrim" id="menuScrim">
+  <div class="modal" style="width:min(560px,96vw)" id="menuBody"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -308,8 +323,9 @@ async function openDetail(id){
       ${zClosuresHTML(zc.closures)}
       <div class="section-head" style="margin-top:14px"><h2>Métodos de pago</h2><div class="line"></div></div>${methods}
       <div class="section-head" style="margin-top:14px"><h2>Más vendidos</h2><div class="line"></div></div>${prods}
-      <div style="display:flex;gap:10px;margin-top:18px">
+      <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
         <button class="btn btn-ghost" style="flex:1" onclick="closeDetail()">Cerrar</button>
+        <button class="btn btn-primary" style="flex:1" onclick='openMenuEditor(${JSON.stringify(t.id)})'>Editar carta</button>
         ${t.status==="Activo"
           ? `<button class="btn btn-bad" style="flex:1" onclick='setStatus(${JSON.stringify(t.id)},"Suspendido");closeDetail()'>Suspender licencia</button>`
           : `<button class="btn btn-ok" style="flex:1" onclick='setStatus(${JSON.stringify(t.id)},"Activo");closeDetail()'>Reactivar licencia</button>`}
@@ -319,7 +335,93 @@ async function openDetail(id){
 }
 function closeDetail(){ document.getElementById("detailScrim").classList.remove("on"); }
 
-[document.getElementById("createScrim"),document.getElementById("detailScrim")].forEach(s=>{
+/* ---- Editor de carta remota (añadir / retirar productos por cliente) ---- */
+let MENUED={tid:null, menu:[]};
+function muid(){ return Math.random().toString(36).slice(2,9); }
+async function openMenuEditor(tid){
+  try{
+    const d = await api("/api/provider/tenants/"+tid+"/menu");
+    MENUED={tid, menu:(d.menu||[]).map(c=>({cat:c.cat, station:c.station==="barra"?"barra":"cocina",
+      items:(c.items||[]).map(i=>({id:i.id||muid(), name:i.name, price:i.price, off:!!i.off}))}))};
+    renderMenuEd();
+    document.getElementById("menuScrim").classList.add("on");
+  }catch(e){ toast(e.message,"bad"); }
+}
+function renderMenuEd(){
+  const m=MENUED.menu;
+  const cats=m.map((c,ci)=>`
+    <div class="me-cat">
+      <div class="me-cat-head">
+        <input class="me-in" value="${esc(c.cat)}" onchange="MENUED.menu[${ci}].cat=this.value.trim()||MENUED.menu[${ci}].cat">
+        <select class="me-in" onchange="MENUED.menu[${ci}].station=this.value">
+          <option value="cocina" ${c.station!=="barra"?"selected":""}>🍳 Cocina</option>
+          <option value="barra" ${c.station==="barra"?"selected":""}>🍹 Barra</option>
+        </select>
+        <button class="btn btn-bad btn-sm" onclick="delMenuCat(${ci})">✕</button>
+      </div>
+      ${c.items.map((it,ii)=>`
+        <div class="me-row ${it.off?'off':''}">
+          <input class="me-in nm" value="${esc(it.name)}" onchange="MENUED.menu[${ci}].items[${ii}].name=this.value.trim()||MENUED.menu[${ci}].items[${ii}].name">
+          <input class="me-in pr" type="number" step="0.05" min="0" value="${it.price}" onchange="MENUED.menu[${ci}].items[${ii}].price=Math.max(0,parseFloat(this.value)||0)">
+          <button class="btn ${it.off?'btn-ok':'btn-ghost'} btn-sm" onclick="MENUED.menu[${ci}].items[${ii}].off=!MENUED.menu[${ci}].items[${ii}].off;renderMenuEd()">${it.off?'Activar':'Agotar'}</button>
+          <button class="btn btn-bad btn-sm" onclick="delMenuItem(${ci},${ii})">✕</button>
+        </div>`).join("")}
+      <div class="me-row">
+        <input class="me-in nm" id="np-name-${ci}" placeholder="Nuevo producto">
+        <input class="me-in pr" id="np-price-${ci}" type="number" step="0.05" min="0" placeholder="€">
+        <button class="btn btn-ghost btn-sm" onclick="addMenuItem(${ci})">Añadir</button>
+      </div>
+    </div>`).join("");
+  document.getElementById("menuBody").innerHTML=`
+    <h3>Carta del local</h3>
+    <div class="muted" style="margin-bottom:12px">Añade, edita, agota o retira productos. Al guardar, la carta llega a las
+      tablets del cliente en su próxima sincronización (menos de 1 minuto con la app abierta).</div>
+    ${cats || `<div class="muted" style="margin-bottom:10px">Carta vacía — crea la primera categoría.</div>`}
+    <div class="me-row" style="border-top:none;margin-top:4px">
+      <input class="me-in nm" id="nc-cat-name" placeholder="Nueva categoría (ej: Cócteles)">
+      <select class="me-in" id="nc-cat-station"><option value="cocina">🍳 Cocina</option><option value="barra">🍹 Barra</option></select>
+      <button class="btn btn-ghost btn-sm" onclick="addMenuCat()">Crear</button>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeMenuEd()">Cancelar</button>
+      <button class="btn btn-primary" style="flex:1" onclick="saveMenuEd()">Guardar carta</button>
+    </div>`;
+}
+function addMenuItem(ci){
+  const n=document.getElementById("np-name-"+ci).value.trim();
+  const p=parseFloat(document.getElementById("np-price-"+ci).value);
+  if(!n) return toast("Escribe el nombre del producto","bad");
+  if(!(p>=0)) return toast("Introduce un precio válido","bad");
+  MENUED.menu[ci].items.push({id:muid(), name:n, price:p});
+  renderMenuEd();
+}
+function delMenuItem(ci,ii){
+  if(!confirm(`¿Retirar "${MENUED.menu[ci].items[ii].name}" de la carta?`)) return;
+  MENUED.menu[ci].items.splice(ii,1); renderMenuEd();
+}
+function delMenuCat(ci){
+  const c=MENUED.menu[ci];
+  if(c.items.length && !confirm(`¿Eliminar "${c.cat}" y sus ${c.items.length} producto(s)?`)) return;
+  MENUED.menu.splice(ci,1); renderMenuEd();
+}
+function addMenuCat(){
+  const n=document.getElementById("nc-cat-name").value.trim();
+  if(!n) return toast("Escribe el nombre de la categoría","bad");
+  if(MENUED.menu.some(c=>c.cat.toLowerCase()===n.toLowerCase())) return toast("Ya existe esa categoría","bad");
+  MENUED.menu.push({cat:n, station:document.getElementById("nc-cat-station").value, items:[]});
+  renderMenuEd();
+}
+async function saveMenuEd(){
+  try{
+    if(MENUED.menu.some(c=>!c.items.length) && !confirm("Hay categorías sin productos. ¿Guardar igualmente?")) return;
+    await api("/api/provider/tenants/"+MENUED.tid+"/menu",{method:"PUT",body:JSON.stringify({json:MENUED.menu})});
+    closeMenuEd();
+    toast("Carta guardada — llegará a las tablets al sincronizar","ok");
+  }catch(e){ toast(e.message,"bad"); }
+}
+function closeMenuEd(){ document.getElementById("menuScrim").classList.remove("on"); }
+
+[document.getElementById("createScrim"),document.getElementById("detailScrim"),document.getElementById("menuScrim")].forEach(s=>{
   s.onclick=e=>{ if(e.target===s) s.classList.remove("on"); };
 });
 document.getElementById("li-pass").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });

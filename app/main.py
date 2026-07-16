@@ -228,6 +228,81 @@ def patch_tenant(tid: str, body: TenantPatch, _=Depends(require_provider)):
     return {"ok": True, "updated": list(vals.keys())}
 
 
+class MenuPut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    payload: Any = Field(alias="json")
+
+
+@app.get("/api/provider/tenants/{tid}/menu")
+def get_menu(tid: str, _=Depends(require_provider)):
+    """Carta actual del local (la última sincronizada o la guardada por el proveedor)."""
+    with engine.begin() as cx:
+        row = cx.execute(select(tenants).where(tenants.c.id == tid)).first()
+        if not row:
+            raise HTTPException(404, "Local no encontrado")
+        doc = cx.execute(select(documents).where(and_(
+            documents.c.tenant_id == tid, documents.c.doc_key == "menu"))).first()
+    if not doc:
+        return {"menu": [], "updated_at": None}
+    try:
+        menu = json.loads(doc.json)
+    except Exception:
+        menu = []
+    return {"menu": menu, "updated_at": iso(doc.updated_at)}
+
+
+@app.put("/api/provider/tenants/{tid}/menu")
+def put_menu(tid: str, body: MenuPut, _=Depends(require_provider)):
+    """
+    El proveedor guarda la carta del local. Se marca con la hora del servidor,
+    de modo que las tablets la adoptan en su próxima sincronización (Last-Write-Wins).
+    """
+    menu = body.payload
+    if not isinstance(menu, list):
+        raise HTTPException(400, "La carta debe ser una lista de categorías")
+    clean = []
+    for c in menu:
+        if not isinstance(c, dict):
+            continue
+        cat = str(c.get("cat", "")).strip()
+        if not cat:
+            continue
+        station = c.get("station") if c.get("station") in ("cocina", "barra") else "cocina"
+        items = []
+        for it in (c.get("items") or []):
+            if not isinstance(it, dict):
+                continue
+            name = str(it.get("name", "")).strip()
+            if not name:
+                continue
+            try:
+                price = max(0.0, float(it.get("price", 0) or 0))
+            except (TypeError, ValueError):
+                price = 0.0
+            item = {"id": it.get("id") or secrets.token_hex(4), "name": name, "price": price}
+            if it.get("off"):
+                item["off"] = True
+            items.append(item)
+        clean.append({"cat": cat, "station": station, "items": items})
+
+    ts = now()
+    payload = json.dumps(clean, ensure_ascii=False)
+    with engine.begin() as cx:
+        row = cx.execute(select(tenants).where(tenants.c.id == tid)).first()
+        if not row:
+            raise HTTPException(404, "Local no encontrado")
+        existing = cx.execute(select(documents.c.updated_at).where(and_(
+            documents.c.tenant_id == tid, documents.c.doc_key == "menu"))).first()
+        if existing is None:
+            cx.execute(insert(documents).values(
+                tenant_id=tid, doc_key="menu", json=payload, updated_at=ts))
+        else:
+            cx.execute(update(documents).where(and_(
+                documents.c.tenant_id == tid, documents.c.doc_key == "menu"
+            )).values(json=payload, updated_at=ts))
+    return {"ok": True, "updated_at": iso(ts), "categorias": len(clean)}
+
+
 @app.get("/api/provider/tenants/{tid}/closures")
 def tenant_closures(tid: str, _=Depends(require_provider)):
     """Historial de cierres Z de un local, con su arqueo de efectivo y descuadre."""
