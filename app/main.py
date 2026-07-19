@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select, insert, update, and_
@@ -195,6 +195,44 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def panel():
     return PANEL_HTML
+
+
+# ---------------------------------------------------------------- PWA (/app/)
+# El servidor sirve la propia app vortexPOS como PWA instalable: el cliente
+# entra en /app/, pulsa "Instalar" y la usa con icono propio y sin conexión.
+# Al actualizar static/vortexpos.html aquí, todos los locales reciben la
+# versión nueva en su siguiente arranque con internet.
+STATIC_DIR = Path(__file__).parent / "static"
+_APP_ASSETS = {
+    "manifest.webmanifest": "application/manifest+json",
+    "sw.js": "application/javascript",
+    "icon-192.png": "image/png",
+    "icon-512.png": "image/png",
+    "icon-512-maskable.png": "image/png",
+}
+
+
+@app.get("/app")
+def app_redirect():
+    return RedirectResponse("/app/", status_code=307)
+
+
+@app.get("/app/", response_class=HTMLResponse)
+def app_shell():
+    f = STATIC_DIR / "vortexpos.html"
+    if not f.exists():
+        raise HTTPException(404, "App no publicada en este servidor")
+    return f.read_text(encoding="utf-8")
+
+
+@app.get("/app/{asset}")
+def app_asset(asset: str):
+    if asset not in _APP_ASSETS:          # lista blanca: nada de rutas arbitrarias
+        raise HTTPException(404, "Recurso no encontrado")
+    f = STATIC_DIR / asset
+    if not f.exists():
+        raise HTTPException(404, "Recurso no encontrado")
+    return FileResponse(f, media_type=_APP_ASSETS[asset])
 
 
 # ---------------------------------------------------------------- Provider auth

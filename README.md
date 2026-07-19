@@ -27,6 +27,22 @@ locales desde un solo sitio.
 - **Aislamiento total** — un local nunca ve los datos de otro (multi-inquilino por `tenant_id`).
 - **Ventas a prueba de duplicados** — cada venta/cierre es idempotente: nunca se pierde ni se duplica.
 
+## La app instalable (PWA) — `/app/`
+
+Este servidor también **sirve la propia app vortexPOS como aplicación instalable**:
+
+1. El cliente abre `https://TU-SERVIDOR/app/` en Chrome (Android) o Edge/Chrome (Windows).
+2. El navegador ofrece **“Instalar aplicación”** (o menú ⋮ → *Instalar vortexPOS*).
+3. Queda con **icono propio, pantalla completa y funcionamiento 100% sin conexión**
+   (service worker: probado apagando el servidor y recargando — la app carga igual).
+
+Ventaja clave: **actualizar una vez, llega a todos**. Al sustituir
+`app/static/vortexpos.html` y redesplegar, cada local recibe la versión nueva en su
+siguiente arranque con internet — sin reinstalar nada.
+
+> Mantenimiento: tras cambiar el `vortexpos.html` raíz del proyecto, cópialo a
+> `server/app/static/vortexpos.html` y sube el cambio.
+
 ## Probar en tu ordenador (2 minutos)
 
 ```bash

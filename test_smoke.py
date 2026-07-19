@@ -145,6 +145,18 @@ ok("carta antigua del dispositivo no pisa la del proveedor (LWW)",
    any(cat.get("cat")=="Cócteles" for cat in r.json()["documents"]["menu"]["json"]))
 
 
+# 17b) PWA: la app se sirve instalable desde /app/
+r = c.get("/app/")
+ok("PWA: /app/ sirve la app vortexPOS", r.status_code==200 and "vortexPOS" in r.text and "serviceWorker" in r.text)
+r = c.get("/app/manifest.webmanifest")
+ok("PWA: manifest válido", r.status_code==200 and r.json()["short_name"]=="vortexPOS" and len(r.json()["icons"])==3)
+r = c.get("/app/sw.js")
+ok("PWA: service worker servido como JS", r.status_code==200 and "javascript" in r.headers["content-type"] and "/api/" in r.text)
+r = c.get("/app/icon-512.png")
+ok("PWA: icono 512 disponible", r.status_code==200 and r.headers["content-type"]=="image/png")
+r = c.get("/app/../etc/passwd")
+ok("PWA: rutas fuera de la lista blanca -> 404", r.status_code==404)
+
 # 18) por defecto la respuesta del sync es ligera (sin histórico)
 r = c.post("/api/sync", headers=DEV3, json={})
 ok("sync por defecto no arrastra el histórico", r.status_code==200 and r.json()["records"]==[])
