@@ -1,0 +1,12 @@
+{
+  "name": "vortexpos-windows",
+  "private": true,
+  "version": "2.1.0",
+  "description": "vortexPOS empaquetado como app de Windows (.exe/.msi) con Tauri",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

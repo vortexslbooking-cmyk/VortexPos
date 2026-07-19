@@ -1,0 +1,12 @@
+{
+  "appId": "es.vortex.pos",
+  "appName": "vortexPOS",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

@@ -5,3 +5,9 @@ __pycache__/
 .venv/
 venv/
 .DS_Store
+# generados por las compilaciones de apps (los crea GitHub Actions)
+node_modules/
+apps/android/android/
+apps/windows/src-tauri/target/
+apps/windows/src-tauri/icons/
+apps/windows/src-tauri/gen/
