@@ -7,24 +7,63 @@ Salud:            http://localhost:8000/health
 Docs API:         http://localhost:8000/docs
 """
 import os
+import re
 import json
+import time
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy import select, insert, update, and_
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from .db import engine, init_db, tenants, documents, records
 from .security import (hash_secret, verify_secret, make_token, read_token)
 
 PROVIDER_EMAIL = os.environ.get("PROVIDER_EMAIL", "admin@vortexpos.local")
 PROVIDER_PASSWORD = os.environ.get("PROVIDER_PASSWORD", "vortex-admin")
+PIN_RE = re.compile(r"^\d{4,8}$")
+
+# Aviso claro si se arranca en producción con los valores de ejemplo del código.
+if PROVIDER_PASSWORD == "vortex-admin":
+    print("[vortexPOS] AVISO: PROVIDER_PASSWORD es el valor de ejemplo — "
+          "define PROVIDER_EMAIL/PROVIDER_PASSWORD antes de exponer el servidor.")
+if os.environ.get("JWT_SECRET") in (None, "", "cambia-esta-clave-en-produccion"):
+    print("[vortexPOS] AVISO: JWT_SECRET sin definir — los tokens no son seguros "
+          "fuera de desarrollo.")
+
+
+# ---- Freno anti fuerza-bruta (en memoria; suficiente para un solo proceso) ----
+_FAILS: Dict[str, List[float]] = {}
+_MAX_FAILS = 8          # intentos fallidos permitidos…
+_WINDOW = 300.0         # …en 5 minutos
+_LOCK_SECONDS = 60.0    # bloqueo tras superarlos
+
+
+def throttle_check(bucket: str):
+    fails = [t for t in _FAILS.get(bucket, []) if time.monotonic() - t < _WINDOW]
+    _FAILS[bucket] = fails
+    if len(fails) >= _MAX_FAILS and time.monotonic() - fails[-1] < _LOCK_SECONDS:
+        raise HTTPException(429, "Demasiados intentos — espera un minuto y vuelve a probar")
+
+
+def throttle_fail(bucket: str):
+    _FAILS.setdefault(bucket, []).append(time.monotonic())
+
+
+def throttle_ok(bucket: str):
+    _FAILS.pop(bucket, None)
+
+
+def client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for")  # Render/proxies
+    return (fwd.split(",")[0].strip() if fwd else None) or (request.client.host if request.client else "?")
 
 app = FastAPI(title="vortexPOS Cloud", version="2.0.0")
 
@@ -141,6 +180,10 @@ class RecordIn(BaseModel):
 class SyncIn(BaseModel):
     documents: Dict[str, DocIn] = {}
     records: List[RecordIn] = []
+    # Las tablets no necesitan re-descargar su historial en cada sync: por defecto
+    # la respuesta solo lleva documentos (carta/config). Un cliente que sí quiera
+    # el histórico (p. ej. una tablet nueva restaurando) lo pide explícitamente.
+    pull_records: bool = False
 
 
 # ---------------------------------------------------------------- Salud / panel
@@ -156,11 +199,15 @@ def panel():
 
 # ---------------------------------------------------------------- Provider auth
 @app.post("/api/provider/login")
-def provider_login(body: ProviderLogin):
+def provider_login(body: ProviderLogin, request: Request):
+    bucket = "prov:" + client_ip(request)
+    throttle_check(bucket)
     ok = (secrets.compare_digest(body.email.strip().lower(), PROVIDER_EMAIL.strip().lower())
           and secrets.compare_digest(body.password, PROVIDER_PASSWORD))
     if not ok:
+        throttle_fail(bucket)
         raise HTTPException(401, "Credenciales de proveedor incorrectas")
+    throttle_ok(bucket)
     return {"token": make_token({"role": "provider", "email": PROVIDER_EMAIL})}
 
 
@@ -198,6 +245,10 @@ def list_tenants(_=Depends(require_provider)):
 
 @app.post("/api/provider/tenants")
 def create_tenant(body: TenantCreate, _=Depends(require_provider)):
+    if not PIN_RE.match(body.pin or ""):
+        raise HTTPException(400, "El PIN debe tener de 4 a 8 dígitos (solo números)")
+    if not body.business_name.strip():
+        raise HTTPException(400, "El nombre del negocio es obligatorio")
     tid = "t_" + secrets.token_hex(6)
     license_key = "VTX-" + "-".join(secrets.token_hex(2).upper() for _ in range(3))
     with engine.begin() as cx:
@@ -218,6 +269,8 @@ def patch_tenant(tid: str, body: TenantPatch, _=Depends(require_provider)):
         if v is not None:
             vals[f] = v
     if body.pin:
+        if not PIN_RE.match(body.pin):
+            raise HTTPException(400, "El PIN debe tener de 4 a 8 dígitos (solo números)")
         vals["pin_hash"] = hash_secret(body.pin)
     if not vals:
         raise HTTPException(400, "Nada que actualizar")
@@ -376,12 +429,16 @@ def tenant_summary(tid: str, _=Depends(require_provider)):
 
 # ---------------------------------------------------------------- Device auth
 @app.post("/api/device/login")
-def device_login(body: DeviceLogin):
+def device_login(body: DeviceLogin, request: Request):
+    bucket = "dev:" + client_ip(request)
+    throttle_check(bucket)
     with engine.begin() as cx:
         row = cx.execute(select(tenants).where(
             tenants.c.license_key == body.license_key.strip())).first()
     if not row or not verify_secret(body.pin, row.pin_hash):
+        throttle_fail(bucket)
         raise HTTPException(401, "Licencia o PIN incorrectos")
+    throttle_ok(bucket)
     if row.status in ("Suspendido", "Baja"):
         raise HTTPException(403, f"Licencia {row.status.lower()} — contacta con el proveedor")
     token = make_token({"role": "device", "tenant_id": row.id, "license": row.license_key})
@@ -424,34 +481,27 @@ def sync(body: SyncIn, dev=Depends(require_device)):
                         documents.c.tenant_id == tid, documents.c.doc_key == key
                     )).values(json=payload, updated_at=ts))
 
-        # PUSH records (idempotente: ignora duplicados por id)
+        # PUSH records (idempotente: ignora duplicados por id, en una sola sentencia)
         for rec in body.records:
             payload = json.dumps(rec.payload, ensure_ascii=False)
             ts = parse_iso(rec.created_at)
             values = dict(tenant_id=tid, kind=rec.kind, record_id=rec.record_id,
                           json=payload, created_at=ts)
-            if is_sqlite:
-                stmt = sqlite_insert(records).values(**values).on_conflict_do_nothing(
-                    index_elements=["tenant_id", "kind", "record_id"])
-                cx.execute(stmt)
-            else:
-                # Postgres: intenta insertar, ignora si ya existe
-                exists = cx.execute(select(records.c.record_id).where(and_(
-                    records.c.tenant_id == tid, records.c.kind == rec.kind,
-                    records.c.record_id == rec.record_id))).first()
-                if not exists:
-                    cx.execute(insert(records).values(**values))
+            ins = sqlite_insert(records) if is_sqlite else pg_insert(records)
+            cx.execute(ins.values(**values).on_conflict_do_nothing(
+                index_elements=["tenant_id", "kind", "record_id"]))
 
         cx.execute(update(tenants).where(tenants.c.id == tid).values(last_seen=now()))
 
-        # PULL: devuelve el estado autoritativo completo (volumen por local es pequeño)
+        # PULL: documentos siempre (carta/config); el histórico solo si se pide.
         docs_out = {}
         for r in cx.execute(select(documents).where(documents.c.tenant_id == tid)).all():
             docs_out[r.doc_key] = {"json": json.loads(r.json), "updated_at": iso(r.updated_at)}
         recs_out = []
-        for r in cx.execute(select(records).where(records.c.tenant_id == tid)
-                            .order_by(records.c.created_at)).all():
-            recs_out.append({"kind": r.kind, "record_id": r.record_id,
-                             "json": json.loads(r.json), "created_at": iso(r.created_at)})
+        if body.pull_records:
+            for r in cx.execute(select(records).where(records.c.tenant_id == tid)
+                                .order_by(records.c.created_at)).all():
+                recs_out.append({"kind": r.kind, "record_id": r.record_id,
+                                 "json": json.loads(r.json), "created_at": iso(r.created_at)})
 
     return {"documents": docs_out, "records": recs_out, "server_time": iso(now())}

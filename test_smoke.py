@@ -64,17 +64,18 @@ sync1 = {
     {"kind":"sale","record_id":"s2","json":{"total":7.6,"method":"tarjeta",
        "items":[{"name":"Copa de vino","price":3.8,"qty":2}]},"created_at":"2026-07-15T11:05:00+00:00"},
   ]}
+sync1["pull_records"]=True
 r = c.post("/api/sync", headers=DEV1, json=sync1)
 ok("tablet 1 sincroniza", r.status_code==200 and len(r.json()["records"])==2)
 
 # 9) reenvío idempotente (misma venta s1 otra vez) NO duplica
-r = c.post("/api/sync", headers=DEV1, json={"records":[sync1["records"][0]]})
+r = c.post("/api/sync", headers=DEV1, json={"records":[sync1["records"][0]],"pull_records":True})
 ok("venta duplicada no se duplica (idempotencia)", len(r.json()["records"])==2)
 
 # 10) tablet 2 del mismo local recibe las ventas de la tablet 1
 r = c.post("/api/device/login", json={"license_key":LIC,"pin":"4821"})
 DEV2 = {"Authorization":"Bearer "+r.json()["token"]}
-r = c.post("/api/sync", headers=DEV2, json={})  # pull puro
+r = c.post("/api/sync", headers=DEV2, json={"pull_records":True})  # pull puro
 recs = r.json()["records"]
 ok("tablet 2 recibe las 2 ventas (multi-dispositivo)", len(recs)==2)
 ok("tablet 2 recibe la carta (documento)", "menu" in r.json()["documents"])
@@ -83,7 +84,7 @@ ok("tablet 2 recibe la carta (documento)", "menu" in r.json()["documents"])
 c.post("/api/sync", headers=DEV2, json={"records":[
     {"kind":"sale","record_id":"s3","json":{"total":5.0,"method":"efectivo",
        "items":[{"name":"Café","price":2.5,"qty":2}]},"created_at":"2026-07-15T11:10:00+00:00"}]})
-r = c.post("/api/sync", headers=DEV1, json={})
+r = c.post("/api/sync", headers=DEV1, json={"pull_records":True})
 ok("tablet 1 ve la venta de la tablet 2", len(r.json()["records"])==3)
 
 # 12) proveedor ve el resumen agregado
@@ -115,7 +116,7 @@ r = c.post("/api/provider/tenants", headers=PROV,
 LIC2 = r.json()["license_key"]
 r = c.post("/api/device/login", json={"license_key":LIC2,"pin":"1111"})
 DEV_B = {"Authorization":"Bearer "+r.json()["token"]}
-r = c.post("/api/sync", headers=DEV_B, json={})
+r = c.post("/api/sync", headers=DEV_B, json={"pull_records":True})
 ok("aislamiento multi-inquilino: local 2 no ve ventas del local 1", len(r.json()["records"])==0)
 
 # 16) el proveedor edita la carta en remoto (añadir/retirar) y el dispositivo la recibe
@@ -142,6 +143,18 @@ r = c.post("/api/sync", headers=DEV3, json={"documents":{"menu":{
     "updated_at":"2020-01-01T00:00:00+00:00"}}})
 ok("carta antigua del dispositivo no pisa la del proveedor (LWW)",
    any(cat.get("cat")=="Cócteles" for cat in r.json()["documents"]["menu"]["json"]))
+
+
+# 18) por defecto la respuesta del sync es ligera (sin histórico)
+r = c.post("/api/sync", headers=DEV3, json={})
+ok("sync por defecto no arrastra el histórico", r.status_code==200 and r.json()["records"]==[])
+
+# 19) la API rechaza PINs no tecleables en el pad (defensa en profundidad)
+r = c.post("/api/provider/tenants", headers=PROV,
+           json={"business_name":"Mal PIN","plan":"Pro","pin":"abc123"})
+ok("crear licencia con PIN no numérico -> 400", r.status_code==400)
+r = c.patch(f"/api/provider/tenants/{t['id']}", headers=PROV, json={"pin":"12"})
+ok("cambiar a PIN demasiado corto -> 400", r.status_code==400)
 
 passed = sum(1 for c_,_ in checks if c_)
 print(f"\n{passed}/{len(checks)} comprobaciones superadas")
