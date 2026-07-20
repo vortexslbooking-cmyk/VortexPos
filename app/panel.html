@@ -134,7 +134,7 @@
     <button class="btn btn-ghost btn-sm" onclick="loadTenants()">↻ Actualizar</button></div>
   <div class="card" style="padding:6px">
     <table class="tbl">
-      <thead><tr><th>Local</th><th>Licencia</th><th>Plan</th><th>Estado</th>
+      <thead><tr><th>Local</th><th>ID acceso</th><th>Plan</th><th>Estado</th>
         <th class="tnum">Ventas</th><th>Última conexión</th><th></th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
@@ -219,7 +219,7 @@ async function loadTenants(){
     document.getElementById("tbody").innerHTML = ts.length ? ts.map(t=>`
       <tr>
         <td><b>${esc(t.business_name||"—")}</b></td>
-        <td class="tnum muted">${t.license_key}</td>
+        <td class="tnum" style="color:var(--ok);font-weight:800">${t.access_id||"—"}</td>
         <td><span class="plan">${t.plan}</span></td>
         <td><span class="st ${t.status}">${t.status}</span></td>
         <td class="tnum">${fmtMoney(t.sales_total)} <span class="muted">· ${t.sales_count}</span></td>
@@ -256,9 +256,13 @@ async function doCreate(){
     if(!/^\d{4,8}$/.test(pin)) return toast("El PIN debe tener 4–8 dígitos","bad");
     const d = await api("/api/provider/tenants",{method:"POST",body:JSON.stringify({business_name,plan,pin})});
     const box=document.getElementById("nc-result");
-    box.className="lic"; box.innerHTML=`<div class="kk">Licencia creada · entrégala al cliente</div>
-      <div class="vv">${d.license_key}</div>
-      <div class="muted" style="margin-top:8px">PIN: <b>${d.pin}</b> · Plan: ${d.plan}</div>`;
+    box.className="lic"; box.innerHTML=`<div class="kk">Credenciales para el cliente</div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:4px">
+        <div><div class="kk" style="color:var(--ok)">ID de acceso</div><div class="vv">${d.access_id||"—"}</div></div>
+        <div><div class="kk" style="color:var(--ok)">PIN</div><div class="vv">${d.pin}</div></div>
+      </div>
+      <div class="muted" style="margin-top:10px">Con <b>ID + PIN</b> el cliente activa su app — no necesita la licencia.</div>
+      <div class="muted" style="margin-top:6px;font-size:11px">Licencia interna: ${d.license_key} · Plan: ${d.plan}</div>`;
     document.getElementById("nc-save").classList.add("hidden");
     loadTenants();
   }catch(e){ toast(e.message,"bad"); }
@@ -311,7 +315,8 @@ async function openDetail(id){
     const descuadreTotal = zc.closures.reduce((a,c)=>a+(typeof c.descuadre==="number"?c.descuadre:0),0);
     document.getElementById("detailBody").innerHTML=`
       <h3>${esc(t.business_name)} <span class="st ${t.status}" style="margin-left:6px">${t.status}</span></h3>
-      <div class="muted tnum" style="margin-bottom:14px">${t.license_key} · Plan ${t.plan}</div>
+      <div class="muted tnum" style="margin-bottom:6px">ID de acceso: <b style="color:var(--ok);font-size:15px">${t.access_id||"—"}</b> · Plan ${t.plan}</div>
+      <div class="muted tnum" style="margin-bottom:14px;font-size:11px">Licencia: ${t.license_key}</div>
       <div class="kpis">
         <div class="kpi"><div class="k">Ventas</div><div class="v" style="color:var(--cloud)">${fmtMoney(d.sales_total)}</div></div>
         <div class="kpi"><div class="k">Tickets</div><div class="v">${d.sales_count}</div></div>
