@@ -13,16 +13,48 @@
 <link rel="apple-touch-icon" href="/app/icon-192.png">
 <title>vortexPOS — Sala</title>
 <style>
-:root{
-  --bg:#0b1020; --bg2:#0f1730; --panel:#ffffff; --panel-2:#f4f6fb;
+/* ============================================================
+   TEMA: claro / oscuro / sistema
+   Toda la interfaz se pinta con estas variables. El modo se controla con
+   data-theme en <html>:  "light" | "dark"  (el modo "sistema" resuelve a uno
+   de los dos según prefers-color-scheme). Cambiarlas repinta la app entera.
+   ============================================================ */
+:root, :root[data-theme="light"]{
+  --bg:#0b1020; --bg2:#0f1730;                 /* barra lateral (siempre oscura) */
+  --panel:#ffffff; --panel-2:#f4f6fb;
   --ink:#0f172a; --ink-soft:#475569; --muted:#94a3b8; --line:#e6eaf2;
   --brand:#2563eb; --brand-2:#06b6d4; --brand-ink:#eff6ff;
   --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --info:#6366f1;
   --free:#10b981; --busy:#2563eb; --resv:#f59e0b;
-  --radius:18px; --radius-sm:12px; --shadow:0 10px 30px -12px rgba(15,23,42,.28);
+  --ok-bg:#dcfce7; --ok-tx:#166534; --warn-bg:#fef3c7; --warn-tx:#b45309;
+  --bad-bg:#fee2e2; --bad-tx:#b91c1c; --info-bg:#e0e7ff; --info-tx:#4338ca;
+  --neutral-bg:#f1f5f9; --neutral-tx:#64748b;
+  --alert-bg:#fef2f2; --alert-tx:#dc2626; --soon-bg:#fffbeb; --soon-tx:#b45309;
+  --barra-bg:#cffafe; --barra-tx:#0e7490; --tarjeta-bg:#dbeafe; --tarjeta-tx:#1e40af;
+  --stepper-bg:#f1f5f9; --stepper-hover:#e2e8f0; --ghost-hover:#e9edf5;
+  --scroll:#cbd5e1; --scroll-hover:#94a3b8;
+  --shadow:0 10px 30px -12px rgba(15,23,42,.28);
   --shadow-sm:0 2px 8px -2px rgba(15,23,42,.14);
+  --radius:18px; --radius-sm:12px;
   --sidebar-w:84px;
   font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+:root[data-theme="dark"]{
+  --bg:#070b16; --bg2:#0b1226;
+  --panel:#111a2e; --panel-2:#0a101f;
+  --ink:#eaf0fb; --ink-soft:#aebbd4; --muted:#7386a5; --line:#1e2b45;
+  --brand:#5b8dff; --brand-2:#38bdf8; --brand-ink:#152641;
+  --ok:#3fca9a; --warn:#e0a94a; --bad:#f2726f; --info:#8b93ff;
+  --free:#3fca9a; --busy:#5b8dff; --resv:#e0a94a;
+  --ok-bg:#0e2a22; --ok-tx:#5fe0b0; --warn-bg:#2c2210; --warn-tx:#e9bf6a;
+  --bad-bg:#2c1414; --bad-tx:#ff9b98; --info-bg:#1a1f3d; --info-tx:#a5adff;
+  --neutral-bg:#151f33; --neutral-tx:#8fa1bd;
+  --alert-bg:#2c1414; --alert-tx:#ff9b98; --soon-bg:#2c2210; --soon-tx:#e9bf6a;
+  --barra-bg:#0e2b36; --barra-tx:#67d8ef; --tarjeta-bg:#152641; --tarjeta-tx:#93b4ff;
+  --stepper-bg:#151f33; --stepper-hover:#1e2b45; --ghost-hover:#1b2740;
+  --scroll:#26364f; --scroll-hover:#3a4d6c;
+  --shadow:0 10px 30px -12px rgba(0,0,0,.6);
+  --shadow-sm:0 2px 8px -2px rgba(0,0,0,.45);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
@@ -31,8 +63,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 svg{width:1em;height:1em;flex:none;vertical-align:-.12em}
 input,select,textarea{font-family:inherit;font-size:15px;user-select:text;-webkit-user-select:text}
 ::-webkit-scrollbar{width:10px;height:10px}
-::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px;border:2px solid transparent;background-clip:content-box}
-::-webkit-scrollbar-thumb:hover{background:#94a3b8;background-clip:content-box}
+::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:8px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--scroll-hover);background-clip:content-box}
 
 /* ---------- Layout ---------- */
 /* 100dvh usa la altura VISIBLE real del móvil (descuenta la barra del navegador),
@@ -69,11 +101,11 @@ input,select,textarea{font-family:inherit;font-size:15px;user-select:text;-webki
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 18px;border-radius:12px;font-weight:700;font-size:14px;transition:.15s;white-space:nowrap}
 .btn svg{width:17px;height:17px}
 .btn-primary{background:var(--brand);color:#fff;box-shadow:0 6px 16px -6px rgba(37,99,235,.6)}
-.btn-primary:hover{background:#1d4ed8}
+.btn-primary:hover{filter:brightness(1.08)}
 .btn-ghost{background:var(--panel-2);color:var(--ink-soft)}
-.btn-ghost:hover{background:#e9edf5;color:var(--ink)}
+.btn-ghost:hover{background:var(--ghost-hover);color:var(--ink)}
 .btn-ok{background:var(--ok);color:#fff}.btn-ok:hover{filter:brightness(.94)}
-.btn-bad{background:#fee2e2;color:#b91c1c}.btn-bad:hover{background:#fecaca}
+.btn-bad{background:var(--bad-bg);color:var(--bad-tx)}.btn-bad:hover{filter:brightness(.95)}
 .btn-warn{background:var(--warn);color:#fff}.btn-warn:hover{filter:brightness(.95)}
 .btn-sm{padding:8px 12px;font-size:13px;border-radius:10px}
 .btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
@@ -97,12 +129,12 @@ input,select,textarea{font-family:inherit;font-size:15px;user-select:text;-webki
 .table-card .status-row{display:flex;align-items:center;gap:6px;margin-top:12px;font-size:12px;font-weight:700}
 .table-card.free .status-row{color:var(--free)}
 .table-card.busy .status-row{color:var(--busy)}
-.table-card.resv .status-row{color:#b45309}
+.table-card.resv .status-row{color:var(--warn-tx)}
 .table-card .amount{margin-top:12px;font-size:22px;font-weight:800;letter-spacing:-.5px}
 .table-card .meta{margin-top:4px;font-size:12px;color:var(--muted);font-weight:600}
 .table-card .flag{position:absolute;top:12px;right:12px;font-size:11px;font-weight:800;padding:4px 8px;border-radius:8px;display:inline-flex;align-items:center;gap:4px}
-.flag.alert{background:#fef2f2;color:#dc2626;animation:pulse 1.6s infinite}
-.flag.soon{background:#fffbeb;color:#b45309}
+.flag.alert{background:var(--alert-bg);color:var(--alert-tx);animation:pulse 1.6s infinite}
+.flag.soon{background:var(--soon-bg);color:var(--soon-tx)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
 
 /* KPI cards */
@@ -120,8 +152,8 @@ input,select,textarea{font-family:inherit;font-size:15px;user-select:text;-webki
 .ticket .thead{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 10px}
 .ticket .thead .tt{font-weight:800;font-size:16px}
 .ticket .thead .station{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;padding:3px 8px;border-radius:7px}
-.st-cocina{background:#fef3c7;color:#b45309}
-.st-barra{background:#cffafe;color:#0e7490}
+.st-cocina{background:var(--warn-bg);color:var(--warn-tx)}
+.st-barra{background:var(--barra-bg);color:var(--barra-tx)}
 .ticket .timer{padding:0 16px;font-size:12px;font-weight:700;color:var(--muted)}
 .ticket .items{padding:12px 16px;display:flex;flex-direction:column;gap:9px;flex:1}
 .kline{display:flex;gap:10px;align-items:flex-start;font-size:15px}
@@ -142,7 +174,7 @@ input,select,textarea{font-family:inherit;font-size:15px;user-select:text;-webki
 .resv-card .info{flex:1;min-width:0}
 .resv-card .info .nm{font-weight:800;font-size:16px}
 .resv-card .info .dt{font-size:13px;color:var(--ink-soft);font-weight:600;margin-top:2px}
-.resv-card.imminent{border-color:#fcd34d;background:linear-gradient(90deg,#fffbeb,#fff 40%)}
+.resv-card.imminent{border-color:var(--warn);background:linear-gradient(90deg,var(--soon-bg),var(--panel) 60%)}
 
 /* ---------- Sales history ---------- */
 .table-wrap{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-sm)}
@@ -152,8 +184,8 @@ table.data td{padding:14px 18px;border-bottom:1px solid var(--line);font-size:14
 table.data tr:last-child td{border-bottom:none}
 table.data tr:hover td{background:var(--panel-2)}
 .tag{display:inline-flex;padding:3px 9px;border-radius:7px;font-size:11px;font-weight:800;letter-spacing:.3px}
-.tag.efectivo{background:#dcfce7;color:#166534}
-.tag.tarjeta{background:#dbeafe;color:#1e40af}
+.tag.efectivo{background:var(--ok-bg);color:var(--ok-tx)}
+.tag.tarjeta{background:var(--tarjeta-bg);color:var(--tarjeta-tx)}
 
 /* ---------- Empty ---------- */
 .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:60px 20px;color:var(--muted);text-align:center}
@@ -169,7 +201,7 @@ table.data tr:hover td{background:var(--panel-2)}
 .drawer-head .dt{font-size:19px;font-weight:800}
 .drawer-head .ds{font-size:13px;color:var(--muted);font-weight:600}
 .drawer-head .x{margin-left:auto;width:38px;height:38px;border-radius:11px;background:var(--panel-2);display:grid;place-items:center;color:var(--ink-soft)}
-.drawer-head .x:hover{background:#e9edf5}
+.drawer-head .x:hover{background:var(--ghost-hover)}
 .drawer-body{flex:1;overflow:auto;padding:20px 22px}
 .drawer-foot{flex:none;background:var(--panel);border-top:1px solid var(--line);padding:16px 22px;display:flex;flex-direction:column;gap:12px}
 
@@ -190,18 +222,18 @@ table.data tr:hover td{background:var(--panel-2)}
 .oline .top{display:flex;align-items:center;gap:10px}
 .oline .onm{font-weight:700;font-size:14px;flex:1}
 .oline .op{font-weight:800;font-size:14px}
-.stepper{display:inline-flex;align-items:center;background:var(--panel-2);border-radius:9px;overflow:hidden}
+.stepper{display:inline-flex;align-items:center;background:var(--stepper-bg);border-radius:9px;overflow:hidden}
 .stepper button{width:30px;height:30px;font-size:17px;font-weight:800;color:var(--ink-soft);display:grid;place-items:center}
-.stepper button:hover{background:#e2e8f0;color:var(--ink)}
+.stepper button:hover{background:var(--stepper-hover);color:var(--ink)}
 .stepper .q{min-width:30px;text-align:center;font-weight:800;font-size:14px}
 .oline .noterow{margin-top:8px}
 .oline .noteinput{width:100%;border:1px dashed var(--line);background:var(--panel-2);border-radius:9px;padding:7px 10px;font-size:13px;color:var(--ink-soft);font-weight:600}
 .oline .noteinput:focus{outline:none;border-color:var(--brand);border-style:solid}
 .oline .statebadge{font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;text-transform:uppercase;letter-spacing:.3px}
-.sb-nuevo{background:#e0e7ff;color:#4338ca}
-.sb-preparando{background:#fef3c7;color:#b45309}
-.sb-listo{background:#d1fae5;color:#065f46}
-.sb-servido{background:#f1f5f9;color:#64748b}
+.sb-nuevo{background:var(--info-bg);color:var(--info-tx)}
+.sb-preparando{background:var(--warn-bg);color:var(--warn-tx)}
+.sb-listo{background:var(--ok-bg);color:var(--ok-tx)}
+.sb-servido{background:var(--neutral-bg);color:var(--neutral-tx)}
 
 .total-row{display:flex;align-items:baseline;justify-content:space-between;padding:4px 2px}
 .total-row .tl{font-size:13px;font-weight:700;color:var(--muted)}
@@ -225,10 +257,49 @@ table.data tr:hover td{background:var(--panel-2)}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
 /* toast */
-.toast-wrap{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:100;display:flex;flex-direction:column;gap:8px;align-items:center}
-.toast{background:var(--ink);color:#fff;padding:12px 20px;border-radius:12px;font-weight:700;font-size:14px;box-shadow:var(--shadow);animation:rise .3s;display:flex;align-items:center;gap:9px}
+.toast-wrap{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{background:var(--ink);color:var(--panel);padding:12px 20px;border-radius:12px;font-weight:700;font-size:14px;box-shadow:var(--shadow);animation:rise .3s;display:flex;align-items:center;gap:9px}
 .toast.ok{background:var(--ok)}.toast.bad{background:var(--bad)}.toast.info{background:var(--brand)}
 @keyframes rise{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ============================================================
+   PANTALLA DE ACCESO (activación con ID + PIN) y selector de camarero
+   ============================================================ */
+.gate{position:fixed;inset:0;z-index:110;display:none;align-items:center;justify-content:center;padding:20px;
+  background:radial-gradient(120% 120% at 50% 0%,#16224a,#0b1020 55%,#070b16)}
+.gate.on{display:flex}
+.gate-card{width:min(420px,96vw);max-height:94dvh;overflow:auto;text-align:center;color:#e8eefc}
+.gate-logo{width:88px;height:88px;border-radius:26px;margin:0 auto 18px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#2563eb,#06b6d4);box-shadow:0 22px 50px -18px rgba(37,99,235,.9)}
+.gate-logo svg{width:50px;height:50px}
+.gate h1{font-size:27px;font-weight:800;letter-spacing:-.6px;margin-bottom:6px}
+.gate .sub{font-size:14px;color:#8fa3c8;font-weight:600;margin-bottom:26px;line-height:1.5}
+.gate-field{text-align:left;margin-bottom:14px}
+.gate-field label{display:block;font-size:11px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;
+  color:#7f93b8;margin-bottom:7px}
+.gate-field input{width:100%;background:rgba(255,255,255,.06);border:1.5px solid #263559;color:#fff;
+  border-radius:14px;padding:16px;font-size:20px;font-weight:800;text-align:center;letter-spacing:3px}
+.gate-field input::placeholder{color:#41537a;letter-spacing:1px;font-weight:600}
+.gate-field input:focus{outline:none;border-color:#38bdf8;background:rgba(56,189,248,.08)}
+.gate-btn{width:100%;padding:17px;border-radius:14px;font-size:16px;font-weight:800;margin-top:6px;
+  background:linear-gradient(135deg,#2563eb,#0ea5e9);color:#fff;transition:.15s}
+.gate-btn:hover{filter:brightness(1.08)}
+.gate-btn:disabled{opacity:.55;cursor:wait}
+.gate-msg{min-height:22px;margin-top:14px;font-size:13.5px;font-weight:700}
+.gate-msg.err{color:#ff9b98}
+.gate-msg.ok{color:#5fe0b0}
+.gate-alt{margin-top:22px;font-size:12.5px;color:#5d729b;font-weight:600}
+.gate-alt button{color:#8fa3c8;font-weight:700;text-decoration:underline;text-underline-offset:3px}
+.gate-alt button:hover{color:#cfe0ff}
+.gate-foot{margin-top:26px;font-size:11px;color:#3f5178;letter-spacing:.5px}
+/* selector de camarero */
+.staff-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:12px;margin-top:6px}
+.staff-btn{background:rgba(255,255,255,.06);border:1.5px solid #263559;border-radius:16px;padding:18px 12px;
+  color:#e8eefc;transition:.15s;display:flex;flex-direction:column;align-items:center;gap:9px}
+.staff-btn:hover{border-color:#38bdf8;background:rgba(56,189,248,.1);transform:translateY(-2px)}
+.staff-ava{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:18px;color:#fff}
+.staff-btn .nm{font-weight:800;font-size:14.5px}
+.staff-btn .rl{font-size:11px;color:#8fa3c8;font-weight:600}
 
 /* ---------- Panel técnico (oculto — solo proveedor) ---------- */
 .admin-scrim{position:fixed;inset:0;background:rgba(2,6,23,.78);backdrop-filter:blur(3px);z-index:90;display:none;align-items:center;justify-content:center;padding:22px}
@@ -334,6 +405,7 @@ table.data tr:hover td{background:var(--panel-2)}
         <div class="sub" id="viewSub">Plano de mesas en tiempo real</div>
       </div>
       <div class="spacer"></div>
+      <button class="pill" id="staffPill" style="display:none" title="Cambiar de camarero"><span class="staff-ava" id="staffPillAva" style="width:22px;height:22px;font-size:10px"></span> <b id="staffPillName"></b></button>
       <div class="pill" id="cloudPill" style="display:none" title="Estado de sincronización con vortexPOS Cloud"><span class="dot" style="background:var(--muted)"></span> <b>Nube</b></div>
       <div class="pill"><span class="dot" style="background:var(--free)"></span> <b id="pFree">0</b> libres</div>
       <div class="pill"><span class="dot" style="background:var(--busy)"></span> <b id="pBusy">0</b> ocupadas</div>
@@ -350,6 +422,9 @@ table.data tr:hover td{background:var(--panel-2)}
   <div class="drawer-body" id="drawerBody"></div>
   <div class="drawer-foot" id="drawerFoot"></div>
 </aside>
+
+<!-- Pantalla de acceso: activación del dispositivo (ID + PIN) y selector de camarero -->
+<div class="gate" id="gate"><div class="gate-card" id="gateCard"></div></div>
 
 <div class="toast-wrap" id="toasts"></div>
 
@@ -475,7 +550,9 @@ function line(pid,qty,notes="",ts=now(),status="nuevo"){
 }
 function sale(tableId,method,ts,items){
   const total=items.reduce((s,i)=>s+i.price*i.qty,0);
-  return {id:uid(),tableId,method,paidAt:ts,items,total};
+  const w=(typeof currentStaff==="function")?currentStaff():null;   // quién cobró
+  return {id:uid(),tableId,method,paidAt:ts,items,total,
+          staffId:w?w.id:"", staffName:w?w.name:""};
 }
 
 function load(){
@@ -504,6 +581,8 @@ function migrate(s){ // compatibilidad con datos guardados por versiones anterio
   if(!s.menu||!s.menu.length)s.menu=JSON.parse(JSON.stringify(DEFAULT_MENU));
   if(typeof s.menuUpdatedAt!=="number")s.menuUpdatedAt=s.seededAt||now();
   if(!s.cloudAcked||typeof s.cloudAcked!=="object")s.cloudAcked={};
+  if(!Array.isArray(s.staff))s.staff=[];
+  if(typeof s.currentStaffId!=="string")s.currentStaffId="";
   if(!s.tables.some(t=>t.zone==="Para llevar")){ // venta rápida de mostrador (chiringuito)
     s.tables.push(
       {id:"L1",name:"Llevar 1",zone:"Para llevar",seats:1,status:"free",orderId:null},
@@ -558,6 +637,7 @@ const VIEWS=[
   {id:"sala",label:"Sala",title:"Sala",sub:"Plano de mesas en tiempo real",icon:iconGrid},
   {id:"cocina",label:"Cocina",title:"Cocina · KDS",sub:"Tickets por orden de llegada",icon:iconFlame},
   {id:"reservas",label:"Reservas",title:"Reservas",sub:"Próximas entradas y asignación de mesa",icon:iconCal},
+  {id:"personal",label:"Personal",title:"Camareros",sub:"Equipo del local y cambio de turno",icon:iconStaff},
   {id:"caja",label:"Caja",title:"Caja",sub:"Cuentas abiertas, arqueo y cierre de caja",icon:iconCard},
 ];
 let current="sala";
@@ -586,11 +666,23 @@ function render(){
   document.getElementById("pFree").textContent=free;
   document.getElementById("pBusy").textContent=busy;
   document.getElementById("pResv").textContent=resv;
+  // camarero en turno (visible y pulsable para cambiar)
+  const sp=document.getElementById("staffPill"), w=currentStaff();
+  if(sp){
+    if(w){
+      sp.style.display="inline-flex";
+      const ava=document.getElementById("staffPillAva");
+      ava.textContent=staffInitials(w.name); ava.style.background=staffColor(w);
+      document.getElementById("staffPillName").textContent=w.name;
+      sp.onclick=switchStaff;
+    } else sp.style.display="none";
+  }
   buildNav();
   const view=document.getElementById("view");
   if(current==="sala")view.innerHTML=renderSala();
   else if(current==="cocina")view.innerHTML=renderCocina();
   else if(current==="reservas")view.innerHTML=renderReservas();
+  else if(current==="personal")view.innerHTML=renderPersonal();
   else if(current==="caja")view.innerHTML=renderCaja();
   wireView();
 }
@@ -679,6 +771,89 @@ function renderReservas(){
   return header+`<div class="resv-list">${list}</div>`;
 }
 
+/* ----- PERSONAL (camareros) ----- */
+function renderPersonal(){
+  const cur = currentStaff();
+  const head = `<div class="section-head"><h2>Equipo del local</h2><div class="line"></div>
+    <button class="btn btn-primary btn-sm" id="staffAdd">${iconPlus()} Nuevo camarero</button></div>`;
+
+  const turno = `<div class="card-turno kpi" style="margin-bottom:16px;display:flex;align-items:center;gap:14px">
+    ${cur ? `<span class="staff-ava" style="background:${staffColor(cur)};width:44px;height:44px">${esc(staffInitials(cur.name))}</span>
+      <div style="flex:1"><div class="k">Turno actual</div>
+        <div style="font-size:19px;font-weight:800;margin-top:2px">${esc(cur.name)}</div></div>`
+      : `<div style="flex:1"><div class="k">Turno actual</div>
+        <div style="font-size:17px;font-weight:800;margin-top:2px;color:var(--muted)">Nadie ha abierto turno</div></div>`}
+    <button class="btn btn-ghost btn-sm" id="staffSwitch">Cambiar de camarero</button>
+  </div>`;
+
+  const list = (S.staff||[]);
+  if(!list.length) return head + turno + emptyState(iconStaff(),
+    "Aún no hay camareros. Añade el primero para que cada uno entre con su usuario.");
+
+  const rows = list.map(w => {
+    const ventas = S.sales.filter(s => s.staffId === w.id);
+    const total = ventas.reduce((a,s) => a + s.total, 0);
+    return `<tr>
+      <td><div style="display:flex;align-items:center;gap:10px">
+        <span class="staff-ava" style="background:${staffColor(w)};width:34px;height:34px;font-size:13px">${esc(staffInitials(w.name))}</span>
+        <b>${esc(w.name)}</b>${cur&&cur.id===w.id?' <span class="tag" style="background:var(--ok-bg);color:var(--ok-tx)">en turno</span>':''}
+      </div></td>
+      <td>${w.pin ? "🔒 Con PIN" : '<span class="muted">Sin PIN</span>'}</td>
+      <td>${w.active===false ? '<span class="tag" style="background:var(--neutral-bg);color:var(--neutral-tx)">inactivo</span>' : '<span class="tag" style="background:var(--ok-bg);color:var(--ok-tx)">activo</span>'}</td>
+      <td class="tnum">${ventas.length} · ${money(total)}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" data-staff-edit="${w.id}">Editar</button>
+        <button class="btn btn-bad btn-sm" data-staff-del="${w.id}">✕</button>
+      </td></tr>`;
+  }).join("");
+
+  return head + turno + `<div class="table-wrap"><table class="data">
+    <thead><tr><th>Camarero</th><th>Acceso</th><th>Estado</th><th>Ventas del turno</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <div class="cap">Las ventas quedan registradas con el camarero que cobró — útil para comisiones y para
+    aclarar descuadres en el cierre Z.</div>`;
+}
+
+function staffForm(id){
+  const w = id ? (S.staff||[]).find(x => x.id === id) : null;
+  document.getElementById("drawerHead").innerHTML = `
+    <div><div class="dt">${w ? "Editar camarero" : "Nuevo camarero"}</div>
+    <div class="ds">${w ? esc(w.name) : "Alta en el equipo del local"}</div></div>
+    <button class="x" id="closeDrawer">${iconX()}</button>`;
+  document.getElementById("drawerBody").innerHTML = `
+    <div class="field"><label>Nombre</label><input id="wName" value="${w?esc(w.name):""}" placeholder="Ej: María López"></div>
+    <div class="field"><label>PIN de acceso (opcional, 4–8 dígitos)</label>
+      <input id="wPin" inputmode="numeric" value="${w&&w.pin?esc(w.pin):""}" placeholder="Dejar vacío = entra sin PIN"></div>
+    <div class="field"><label>Estado</label>
+      <select id="wActive">
+        <option value="1" ${!w||w.active!==false?"selected":""}>Activo — puede abrir turno</option>
+        <option value="0" ${w&&w.active===false?"selected":""}>Inactivo — no aparece al entrar</option>
+      </select></div>`;
+  document.getElementById("drawerFoot").innerHTML =
+    `<button class="btn btn-primary" id="wSave" style="width:100%">${iconCheck()} Guardar camarero</button>`;
+  document.getElementById("closeDrawer").onclick = closeDrawer;
+  document.getElementById("wSave").onclick = () => {
+    const name = val("wName");
+    const pin  = val("wPin");
+    const active = document.getElementById("wActive").value === "1";
+    if(!name) return toast("El camarero necesita un nombre","bad");
+    if(pin && !/^\d{4,8}$/.test(pin)) return toast("El PIN son de 4 a 8 dígitos (o déjalo vacío)","bad");
+    if(w){ w.name = name; w.pin = pin; w.active = active; }
+    else { S.staff.push({id:uid(), name, pin, active}); }
+    persist(); closeDrawer(); render();
+    toast(w ? "Camarero actualizado" : `${name} añadido al equipo`,"ok");
+  };
+  openDrawer();
+}
+function staffDelete(id){
+  const w = (S.staff||[]).find(x => x.id === id); if(!w) return;
+  if(!confirm(`¿Dar de baja a ${w.name}?\nSus ventas ya registradas se conservan.`)) return;
+  S.staff = S.staff.filter(x => x.id !== id);
+  if(S.currentStaffId === id) S.currentStaffId = "";
+  persist(); render();
+  toast("Camarero dado de baja","info");
+}
+
 /* ----- CAJA ----- */
 function salesSummary(sales){
   const byMethod={}, byProduct={};
@@ -710,7 +885,7 @@ function renderCaja(){
   const moves=S.cashMoves||[];
   const movRows=moves.slice().reverse().map(m=>`<tr>
     <td>${fmtTime(m.at)}</td>
-    <td><span class="tag" style="${m.type==='in'?'background:#dcfce7;color:#166534':'background:#fee2e2;color:#b91c1c'}">${m.type==='in'?'entrada':'salida'}</span></td>
+    <td><span class="tag" style="${m.type==='in'?'background:var(--ok-bg);color:var(--ok-tx)':'background:var(--bad-bg);color:var(--bad-tx)'}">${m.type==='in'?'entrada':'salida'}</span></td>
     <td>${esc(m.concept)}</td>
     <td style="text-align:right;font-weight:800;color:${m.type==='in'?'var(--ok)':'var(--bad)'}">${m.type==='in'?'+':'−'}${money(m.amount)}</td></tr>`).join("");
   const cash=`
@@ -811,7 +986,7 @@ function openZClosure(){
     <div><div class="dt">Cierre Z</div><div class="ds">Arqueo de efectivo y cierre de la sesión</div></div>
     <button class="x" id="closeDrawer">${iconX()}</button>`;
   document.getElementById("drawerBody").innerHTML=`
-    ${open?`<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;padding:12px 14px;font-weight:700;font-size:13px;color:#b45309;margin-bottom:16px">⚠ Hay ${open} mesa(s) con cuenta abierta sin cobrar.</div>`:""}
+    ${open?`<div style="background:var(--soon-bg);border:1px solid var(--warn);border-radius:12px;padding:12px 14px;font-weight:700;font-size:13px;color:var(--soon-tx);margin-bottom:16px">⚠ Hay ${open} mesa(s) con cuenta abierta sin cobrar.</div>`:""}
     <div class="section-head"><h2>Resumen de la sesión</h2><div class="line"></div></div>
     <div class="table-wrap"><table class="data"><tbody>
       <tr><td>Ventas totales (${sum.tickets} tickets)</td><td style="text-align:right;font-weight:800">${money(sum.total)}</td></tr>
@@ -1128,6 +1303,11 @@ function wireView(){
   // cocina
   view.querySelectorAll(".kline").forEach(l=>l.onclick=()=>toggleLine(l.dataset.order,l.dataset.line));
   view.querySelectorAll("[data-serve]").forEach(b=>b.onclick=()=>serveStation(b.dataset.serve,b.dataset.station));
+  // personal (camareros)
+  const sa=document.getElementById("staffAdd"); if(sa)sa.onclick=()=>staffForm(null);
+  const sw=document.getElementById("staffSwitch"); if(sw)sw.onclick=switchStaff;
+  view.querySelectorAll("[data-staff-edit]").forEach(b=>b.onclick=()=>staffForm(b.dataset.staffEdit));
+  view.querySelectorAll("[data-staff-del]").forEach(b=>b.onclick=()=>staffDelete(b.dataset.staffDel));
   // reservas
   const nr=document.getElementById("newResv"); if(nr)nr.onclick=newReservation;
   view.querySelectorAll("[data-seat]").forEach(b=>b.onclick=()=>seatReservation(b.dataset.seat));
@@ -1303,7 +1483,7 @@ function assignTable(rid){
     <div><div class="dt">Asignar mesa</div><div class="ds">${esc(r.name)} · ${r.people} pax · ${fmtTime(r.time)}</div></div>
     <button class="x" id="closeDrawer">${iconX()}</button>`;
   document.getElementById("drawerBody").innerHTML=`
-    ${fit.length?"":`<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:12px;padding:12px 14px;font-weight:700;font-size:13px;color:#b45309;margin-bottom:16px">Ninguna mesa libre tiene ${r.people} plazas — se muestran todas las libres.</div>`}
+    ${fit.length?"":`<div style="background:var(--soon-bg);border:1px solid var(--warn);border-radius:12px;padding:12px 14px;font-weight:700;font-size:13px;color:var(--soon-tx);margin-bottom:16px">Ninguna mesa libre tiene ${r.people} plazas — se muestran todas las libres.</div>`}
     <div class="menu-grid">${pool.map(t=>`<button class="menu-item" data-pick="${t.id}">
       <div class="mn">${t.name}</div><div class="mp">${t.zone} · ${t.seats} pax</div></button>`).join("")}</div>`;
   document.getElementById("drawerFoot").innerHTML=`<button class="btn btn-ghost" id="pickCancel" style="width:100%">Cancelar</button>`;
@@ -1409,7 +1589,7 @@ document.addEventListener("keydown",e=>{
    Acceso: mantener pulsado el logo ~2 s (táctil) o Ctrl+Alt+A.
    PIN por defecto: 1234 (cámbialo en el propio panel)
    ============================================================ */
-const APP_VERSION="2.1.0";
+const APP_VERSION="2.2.0";
 const ADMIN_KEY="vortexpos.admin.v1";
 const dcl=o=>JSON.parse(JSON.stringify(o));
 const ADMIN_DEFAULTS={
@@ -1418,8 +1598,13 @@ const ADMIN_DEFAULTS={
   business:{name:"vortexPOS Demo",ticketHeader:"",ticketFooter:"Gracias por su visita",vat:10},
   modules:{cocina:true,reservas:true,caja:true},
   printer:{enabled:false,autoOnSend:true,receiptOnCharge:false,width:80,copies:1},
-  cloud:{url:"",licenseKey:""}   // vortexPOS Cloud (Fase 2): vacío = 100% local
+  cloud:{url:"",licenseKey:""},  // vortexPOS Cloud (Fase 2): vacío = 100% local
+  theme:"system",                // system | light | dark
+  activation:{activated:false,accessId:"",businessName:"",at:0,mode:""} // mode: cloud | local
 };
+// Servidor por defecto: la app sale de fábrica apuntando a vortexPOS Cloud,
+// así el cliente solo necesita su ID de acceso y su PIN.
+const DEFAULT_CLOUD_URL = "https://vortexpos-cloud.onrender.com";
 let ADMIN=loadAdmin();
 
 function loadAdmin(){
@@ -1432,7 +1617,8 @@ function loadAdmin(){
         business:{...ADMIN_DEFAULTS.business,...(a.business||{})},
         modules:{...ADMIN_DEFAULTS.modules,...(a.modules||{})},
         printer:{...ADMIN_DEFAULTS.printer,...(a.printer||{})},
-        cloud:{...ADMIN_DEFAULTS.cloud,...(a.cloud||{})}};
+        cloud:{...ADMIN_DEFAULTS.cloud,...(a.cloud||{})},
+        activation:{...ADMIN_DEFAULTS.activation,...(a.activation||{})}};
       // el teclado táctil solo escribe dígitos: un PIN no numérico dejaría fuera al proveedor
       if(!/^\d{4,8}$/.test(String(merged.pin))){
         merged.pin="1234";
@@ -1444,9 +1630,31 @@ function loadAdmin(){
   return dcl(ADMIN_DEFAULTS);
 }
 function persistAdmin(){try{localStorage.setItem(ADMIN_KEY,JSON.stringify(ADMIN));}catch(e){}}
+
+/* ---------------- Tema: claro / oscuro / sistema ---------------- */
+const _mqDark = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+function resolvedTheme(){
+  const t = (ADMIN && ADMIN.theme) || "system";
+  if(t === "light" || t === "dark") return t;
+  return (_mqDark && _mqDark.matches) ? "dark" : "light";
+}
+function applyTheme(){
+  const t = resolvedTheme();
+  document.documentElement.setAttribute("data-theme", t);
+  // La barra de estado del móvil acompaña al tema
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute("content", t === "dark" ? "#070b16" : "#0b1020");
+}
+// En modo "sistema", seguir los cambios del sistema operativo en vivo
+if(_mqDark){
+  const onChange = () => { if(((ADMIN&&ADMIN.theme)||"system") === "system") applyTheme(); };
+  if(_mqDark.addEventListener) _mqDark.addEventListener("change", onChange);
+  else if(_mqDark.addListener) _mqDark.addListener(onChange);
+}
 function moduleOn(viewId){return viewId==="sala"||ADMIN.modules[viewId]!==false;}
 function applyAdmin(){
   document.title=(ADMIN.business.name||"vortexPOS")+" — vortexPOS";
+  applyTheme();
   render();
 }
 
@@ -1549,6 +1757,19 @@ function openAdmin(){
       <div id="admCartaBox">${admCartaHTML()}</div>
       <div class="adm-diag">Solo el proveedor puede modificar carta y precios — el personal únicamente la usa desde la comanda. Los cambios se guardan al instante, sin pasar por “Guardar configuración”. “Agotar” oculta el producto de la comanda sin borrarlo.</div>
     </div>
+    <div class="adm-sec"><h3>${iconTheme()} Apariencia</h3>
+      <div class="adm-grid">
+        <div class="adm-field"><label>Tema de la aplicación</label>
+          <select id="admTheme">
+            <option value="system" ${a.theme==="system"?"selected":""}>🖥️ Según el sistema (automático)</option>
+            <option value="light" ${a.theme==="light"?"selected":""}>☀️ Siempre claro</option>
+            <option value="dark" ${a.theme==="dark"?"selected":""}>🌙 Siempre oscuro</option>
+          </select>
+        </div>
+      </div>
+      <div class="adm-diag">Se aplica al instante y queda guardado en este dispositivo. En modo automático,
+        la app sigue al sistema operativo (útil para terminales que oscurecen de noche).</div>
+    </div>
     <div class="adm-sec"><h3>${iconGrid()} Módulos activos para este cliente</h3>
       <div style="display:flex;gap:26px;flex-wrap:wrap">
         <label class="adm-toggle"><input type="checkbox" id="admModCocina" ${a.modules.cocina?"checked":""}> Cocina (KDS)</label>
@@ -1589,8 +1810,12 @@ function openAdmin(){
       <div class="adm-actions" style="margin-top:10px">
         <button class="btn btn-dark btn-sm" id="admCloudTest">${iconCloud()} Probar conexión</button>
         <button class="btn btn-dark btn-sm" id="admCloudSync">Sincronizar ahora</button>
+        <button class="btn btn-bad btn-sm" id="admDeactivate">Desactivar dispositivo</button>
         <span id="admCloudStat" class="adm-diag" style="margin:0;align-self:center"></span>
       </div>
+      <div class="adm-diag" style="margin-top:8px">Activación: <b>${a.activation && a.activation.activated
+        ? (a.activation.mode==="local" ? "modo local (sin nube)" : "ID "+esc(a.activation.accessId))
+        : "sin activar"}</b>. “Desactivar” devuelve la app a la pantalla de acceso (los datos del local no se borran).</div>
       <div class="adm-diag">Deja estos campos vacíos para funcionar 100% en local (por defecto). Con URL + licencia,
         la app sincroniza ventas y cierres con vuestro servidor central y recibe la carta que edites en remoto,
         sin dejar de funcionar aunque se caiga internet. El PIN de conexión es el mismo de administrador.</div>
@@ -1611,6 +1836,10 @@ function openAdmin(){
   document.getElementById("admCancel").onclick=closeAdmin;
   document.getElementById("admSave").onclick=saveAdmin;
   wireAdmCarta();
+  // vista previa inmediata del tema al cambiar el selector
+  document.getElementById("admTheme").onchange=(e)=>{
+    ADMIN.theme=e.target.value; persistAdmin(); applyTheme();
+  };
   document.getElementById("admPrnTest").onclick=printTest;
   document.getElementById("admExport").onclick=exportBackup;
   document.getElementById("admImportBtn").onclick=()=>document.getElementById("admImport").click();
@@ -1638,6 +1867,12 @@ function openAdmin(){
     cloudStat.innerHTML=r.ok?`<span style="color:var(--ok)">✓ Conectado — ${esc(r.name||"local")}</span>`
                             :`<span style="color:var(--bad)">✕ ${esc(r.error)}</span>`;
   };
+  document.getElementById("admDeactivate").onclick=()=>{
+    if(!confirm("¿Desactivar este dispositivo?\nVolverá a pedir ID de acceso y PIN al abrir. Los datos del local NO se borran."))return;
+    ADMIN.activation={activated:false,accessId:"",businessName:"",at:0,mode:""};
+    persistAdmin(); closeAdmin(); CLOUD.reset(); GATE.next();
+    toast("Dispositivo desactivado","info");
+  };
   document.getElementById("admCloudSync").onclick=async()=>{
     cloudStat.textContent="Sincronizando…";
     const r=await CLOUD.sync(true);
@@ -1663,6 +1898,7 @@ function saveAdmin(){
   ADMIN.modules={cocina:g("admModCocina").checked,reservas:g("admModReservas").checked,caja:g("admModCaja").checked};
   ADMIN.printer={enabled:g("admPrnOn").checked,autoOnSend:g("admPrnAuto").checked,receiptOnCharge:g("admPrnReceipt").checked,width:parseInt(g("admPrnWidth").value)||80,copies:clamp(parseInt(g("admPrnCopies").value)||1,1,3)};
   ADMIN.cloud={url:g("admCloudUrl").value.trim().replace(/\/$/,""),licenseKey:g("admCloudLic").value.trim()};
+  ADMIN.theme=g("admTheme").value;
   if(np)ADMIN.pin=np;
   persistAdmin(); closeAdmin(); applyAdmin();
   CLOUD.reset(); CLOUD.sync(); // aplica la nueva config de nube al instante
@@ -1851,13 +2087,15 @@ function iconShield(){return svg('<path d="M12 2l8 3.2V11c0 4.9-3.4 8.6-8 11-4.6
 function iconPrinter(){return svg('<path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="7" rx="1"/>');}
 function iconBook(){return svg('<path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2zM22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/>');}
 function iconCloud(){return svg('<path d="M6.5 18.5a4 4 0 01-.3-8 5.5 5.5 0 0110.6-1.4 3.75 3.75 0 011 7.4z"/>');}
+function iconTheme(){return svg('<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2M12 20v2M4.2 4.2l1.5 1.5M18.3 18.3l1.5 1.5M2 12h2M20 12h2M4.2 19.8l1.5-1.5M18.3 5.7l1.5-1.5"/>');}
+function iconStaff(){return svg('<circle cx="9" cy="8" r="3.2"/><path d="M2.5 20v-1.2A4.3 4.3 0 016.8 14.5h4.4a4.3 4.3 0 014.3 4.3V20"/><path d="M17 11.5l1.8 1.8L22 10"/>');}
 
 /* ---------------- Clock + auto-tick ---------------- */
 function tickClock(){
   const d=new Date();
   document.getElementById("clock").innerHTML=
     d.getHours().toString().padStart(2,"0")+":"+d.getMinutes().toString().padStart(2,"0")
-    +`<br><span style="font-size:10px;color:#475569">${d.getDate().toString().padStart(2,"0")}/${(d.getMonth()+1).toString().padStart(2,"0")}</span>`;
+    +`<br><span style="font-size:10px;color:var(--muted)">${d.getDate().toString().padStart(2,"0")}/${(d.getMonth()+1).toString().padStart(2,"0")}</span>`;
 }
 function uiIdle(){ // no re-renderizar mientras el usuario tiene un cajón o el panel abiertos
   return !document.getElementById("drawer").classList.contains("on")
@@ -1975,6 +2213,169 @@ setInterval(()=>{ CLOUD.sync(); }, 60000);
 window.addEventListener("online",()=>CLOUD.sync());
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden)CLOUD.sync(); });
 
+/* ============================================================
+   ACCESO: activación del dispositivo (ID + PIN) y elección de camarero
+   ------------------------------------------------------------
+   1) Si el dispositivo no está activado -> pantalla de activación.
+      El ID de acceso y el PIN los genera el proveedor; la app canjea
+      esas credenciales por la licencia, que el cliente nunca ve.
+   2) Si hay camareros dados de alta -> pantalla de "¿quién entra?".
+   Una vez activado, la app abre sin internet: la activación se recuerda.
+   ============================================================ */
+const GATE = {
+  el(){ return document.getElementById("gate"); },
+  card(){ return document.getElementById("gateCard"); },
+  show(){ this.el().classList.add("on"); },
+  hide(){ this.el().classList.remove("on"); },
+  logoSVG(){ return '<svg viewBox="0 0 24 24" fill="none"><path d="M4 4l6 16 2-6 2 6 4-16" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'; },
+
+  /* ---- Paso 1: activación ---- */
+  renderActivation(){
+    this.card().innerHTML = `
+      <div class="gate-logo">${this.logoSVG()}</div>
+      <h1>vortexPOS</h1>
+      <div class="sub">Introduce el <b>ID de acceso</b> y el <b>PIN</b><br>que te ha entregado tu proveedor</div>
+      <div class="gate-field">
+        <label>ID de acceso</label>
+        <input id="gAccess" inputmode="text" autocapitalize="characters" autocomplete="off"
+               maxlength="6" placeholder="A7K2M9">
+      </div>
+      <div class="gate-field">
+        <label>PIN</label>
+        <input id="gPin" type="password" inputmode="numeric" autocomplete="off"
+               maxlength="8" placeholder="••••">
+      </div>
+      <button class="gate-btn" id="gGo">Activar dispositivo</button>
+      <div class="gate-msg" id="gMsg"></div>
+      <div class="gate-alt">¿Sin conexión o instalación local?
+        <button id="gLocal">Activar en modo local</button></div>
+      <div class="gate-foot">VORTEX S.L. · v${APP_VERSION}</div>`;
+    this.show();
+    const acc = document.getElementById("gAccess");
+    const pin = document.getElementById("gPin");
+    acc.oninput = () => { acc.value = acc.value.toUpperCase().replace(/[^A-Z0-9]/g,""); };
+    pin.oninput = () => { pin.value = pin.value.replace(/\D/g,""); };
+    const go = () => this.doActivate();
+    document.getElementById("gGo").onclick = go;
+    pin.addEventListener("keydown", e => { if(e.key === "Enter") go(); });
+    acc.addEventListener("keydown", e => { if(e.key === "Enter") pin.focus(); });
+    document.getElementById("gLocal").onclick = () => this.activateLocal();
+    setTimeout(() => acc.focus(), 100);
+  },
+
+  msg(text, kind){
+    const m = document.getElementById("gMsg");
+    if(m){ m.className = "gate-msg " + (kind||""); m.textContent = text; }
+  },
+
+  async doActivate(){
+    const acc = (document.getElementById("gAccess").value||"").trim().toUpperCase();
+    const pin = (document.getElementById("gPin").value||"").trim();
+    if(acc.length < 4) return this.msg("Escribe el ID de acceso completo","err");
+    if(!/^\d{4,8}$/.test(pin)) return this.msg("El PIN son de 4 a 8 dígitos","err");
+    const btn = document.getElementById("gGo");
+    btn.disabled = true; this.msg("Conectando con el servidor…");
+    const url = ((ADMIN.cloud && ADMIN.cloud.url) || DEFAULT_CLOUD_URL).replace(/\/$/,"");
+    try{
+      const r = await fetch(url + "/api/device/activate", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({access_id:acc, pin:pin})
+      });
+      if(r.status === 401){ btn.disabled=false; return this.msg("ID de acceso o PIN incorrectos","err"); }
+      if(r.status === 403){ btn.disabled=false; return this.msg("Licencia suspendida — contacta con tu proveedor","err"); }
+      if(!r.ok){ btn.disabled=false; return this.msg("El servidor no responde correctamente","err"); }
+      const d = await r.json();
+      // Queda activado: se guarda la licencia (invisible para el cliente) y el PIN
+      ADMIN.cloud = { url:url, licenseKey:d.license_key };
+      ADMIN.pin = pin;                                  // mismo PIN para el panel técnico
+      if(d.tenant && d.tenant.business_name) ADMIN.business.name = d.tenant.business_name;
+      ADMIN.activation = { activated:true, accessId:acc,
+        businessName:(d.tenant&&d.tenant.business_name)||"", at:Date.now(), mode:"cloud" };
+      persistAdmin();
+      this.msg("✓ Dispositivo activado","ok");
+      CLOUD.reset(); CLOUD.sync();
+      setTimeout(() => { applyAdmin(); this.next(); }, 700);
+    }catch(e){
+      btn.disabled = false;
+      this.msg("Sin conexión con el servidor. Revisa internet o usa el modo local.","err");
+    }
+  },
+
+  // Instalación sin nube (demo/USB): la desbloquea el instalador con el PIN técnico
+  activateLocal(){
+    const pin = prompt("Modo local (sin nube)\nIntroduce el PIN de administrador:");
+    if(pin === null) return;
+    if(pin !== String(ADMIN.pin)) { this.msg("PIN de administrador incorrecto","err"); return; }
+    ADMIN.activation = { activated:true, accessId:"LOCAL", businessName:"", at:Date.now(), mode:"local" };
+    persistAdmin();
+    this.msg("✓ Activado en modo local","ok");
+    setTimeout(() => { applyAdmin(); this.next(); }, 500);
+  },
+
+  /* ---- Paso 2: quién entra (camarero) ---- */
+  renderStaffPicker(){
+    const staff = (S.staff||[]).filter(w => w.active !== false);
+    this.card().innerHTML = `
+      <div class="gate-logo">${this.logoSVG()}</div>
+      <h1>${esc(ADMIN.business.name || "vortexPOS")}</h1>
+      <div class="sub">¿Quién abre el turno?</div>
+      <div class="staff-grid">
+        ${staff.map(w => `
+          <button class="staff-btn" data-staff="${w.id}">
+            <span class="staff-ava" style="background:${staffColor(w)}">${esc(staffInitials(w.name))}</span>
+            <span class="nm">${esc(w.name)}</span>
+            <span class="rl">${w.pin ? "🔒 con PIN" : "sin PIN"}</span>
+          </button>`).join("")}
+      </div>
+      <div class="gate-msg" id="gMsg"></div>
+      <div class="gate-foot">VORTEX S.L. · v${APP_VERSION}</div>`;
+    this.show();
+    this.card().querySelectorAll("[data-staff]").forEach(b => {
+      b.onclick = () => this.pickStaff(b.dataset.staff);
+    });
+  },
+
+  pickStaff(id){
+    // Solo camareros dados de alta y activos: si no, el turno quedaría "en el aire"
+    const w = (S.staff||[]).find(x => x.id === id && x.active !== false);
+    if(!w){ this.msg("Ese camarero ya no está activo","err"); return; }
+    if(w.pin){
+      const p = prompt(`PIN de ${w.name}:`);
+      if(p === null) return;
+      if(String(p) !== String(w.pin)) return this.msg("PIN incorrecto","err");
+    }
+    S.currentStaffId = w.id; persist();
+    this.hide(); render();
+    toast(`Turno abierto: ${w.name}`,"ok");
+  },
+
+  /* ---- Orquestador: decide qué pantalla toca ---- */
+  next(){
+    if(!(ADMIN.activation && ADMIN.activation.activated)){ this.renderActivation(); return false; }
+    const staff = (S.staff||[]).filter(w => w.active !== false);
+    if(staff.length && !currentStaff()){ this.renderStaffPicker(); return false; }
+    this.hide(); render();
+    return true;
+  }
+};
+
+/* ---------------- Camareros ---------------- */
+function currentStaff(){
+  // Defensivo: seed() crea ventas de ejemplo cuando S aún se está construyendo
+  if(!S || !S.currentStaffId) return null;
+  return (S.staff||[]).find(w => w.id === S.currentStaffId && w.active !== false) || null;
+}
+function staffInitials(name){
+  const p = String(name||"").trim().split(/\s+/);
+  return ((p[0]||"?")[0] + (p[1] ? p[1][0] : "")).toUpperCase();
+}
+const STAFF_COLORS = ["#2563eb","#0891b2","#7c3aed","#db2777","#ea580c","#059669","#4f46e5","#b45309"];
+function staffColor(w){
+  const i = Math.abs(String(w.id||"").split("").reduce((a,c)=>a+c.charCodeAt(0),0)) % STAFF_COLORS.length;
+  return w.color || STAFF_COLORS[i];
+}
+function switchStaff(){ GATE.renderStaffPicker(); }
+
 /* ---------------- Robustez: errores globales visibles ---------------- */
 window.addEventListener("error",e=>logErr(e.message||"Error desconocido"));
 window.addEventListener("unhandledrejection",e=>logErr(String((e&&e.reason)||"Promesa rechazada")));
@@ -1988,7 +2389,9 @@ if(location.hash==="#reset-pin"){ // recuperación de acceso del proveedor
 }
 backupSnapshot(); // instantánea de arranque: red de seguridad ante corrupción de datos
 tickClock();
+applyTheme();     // el tema se aplica ANTES de pintar, para no parpadear
 applyAdmin();
+GATE.next();      // activación del dispositivo y/o elección de camarero
 CLOUD.setStatus(CLOUD.cfg()?"busy":"local"); CLOUD.sync(); // primera sincronización si hay nube configurada
 // PWA: registra el service worker SOLO cuando la app se sirve desde /app/ del
 // servidor (https o localhost). Abierta como archivo, no hace nada.

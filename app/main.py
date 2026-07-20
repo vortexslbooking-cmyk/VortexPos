@@ -23,7 +23,7 @@ from sqlalchemy import select, insert, update, and_
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from .db import engine, init_db, tenants, documents, records
+from .db import engine, init_db, tenants, documents, records, new_access_id
 from .security import (hash_secret, verify_secret, make_token, read_token)
 
 PROVIDER_EMAIL = os.environ.get("PROVIDER_EMAIL", "admin@vortexpos.local")
@@ -148,6 +148,11 @@ class DeviceLogin(BaseModel):
     pin: str
 
 
+class DeviceActivate(BaseModel):
+    access_id: str
+    pin: str
+
+
 class TenantCreate(BaseModel):
     business_name: str
     plan: str = "Pro"
@@ -240,8 +245,11 @@ def app_asset(asset: str):
 def provider_login(body: ProviderLogin, request: Request):
     bucket = "prov:" + client_ip(request)
     throttle_check(bucket)
-    ok = (secrets.compare_digest(body.email.strip().lower(), PROVIDER_EMAIL.strip().lower())
-          and secrets.compare_digest(body.password, PROVIDER_PASSWORD))
+    # compare_digest exige ASCII en str: se compara en bytes para admitir
+    # contraseñas con ñ, tildes o símbolos sin provocar un error 500.
+    ok = (secrets.compare_digest(body.email.strip().lower().encode(),
+                                 PROVIDER_EMAIL.strip().lower().encode())
+          and secrets.compare_digest(body.password.encode(), PROVIDER_PASSWORD.encode()))
     if not ok:
         throttle_fail(bucket)
         raise HTTPException(401, "Credenciales de proveedor incorrectas")
@@ -252,7 +260,9 @@ def provider_login(body: ProviderLogin, request: Request):
 # ---------------------------------------------------------------- Provider: tenants
 def _tenant_public(row) -> Dict[str, Any]:
     return {
-        "id": row.id, "license_key": row.license_key, "business_name": row.business_name,
+        "id": row.id, "license_key": row.license_key,
+        "access_id": getattr(row, "access_id", None),
+        "business_name": row.business_name,
         "plan": row.plan, "status": row.status, "notes": row.notes,
         "created_at": iso(row.created_at), "last_seen": iso(row.last_seen),
     }
@@ -290,12 +300,19 @@ def create_tenant(body: TenantCreate, _=Depends(require_provider)):
     tid = "t_" + secrets.token_hex(6)
     license_key = "VTX-" + "-".join(secrets.token_hex(2).upper() for _ in range(3))
     with engine.begin() as cx:
+        # ID de acceso único (reintenta si colisiona, cosa improbable)
+        for _ in range(10):
+            access_id = new_access_id()
+            if not cx.execute(select(tenants.c.id).where(
+                    tenants.c.access_id == access_id)).first():
+                break
         cx.execute(insert(tenants).values(
-            id=tid, license_key=license_key, pin_hash=hash_secret(body.pin),
+            id=tid, license_key=license_key, access_id=access_id,
+            pin_hash=hash_secret(body.pin),
             business_name=body.business_name, plan=body.plan, status="Activo",
             notes=body.notes, created_at=now(),
         ))
-    return {"id": tid, "license_key": license_key, "pin": body.pin,
+    return {"id": tid, "license_key": license_key, "access_id": access_id, "pin": body.pin,
             "business_name": body.business_name, "plan": body.plan, "status": "Activo"}
 
 
@@ -466,6 +483,28 @@ def tenant_summary(tid: str, _=Depends(require_provider)):
 
 
 # ---------------------------------------------------------------- Device auth
+@app.post("/api/device/activate")
+def device_activate(body: DeviceActivate, request: Request):
+    """
+    Activación de un dispositivo con el ID de acceso corto + PIN que entrega
+    el proveedor. Devuelve la licencia y un token: a partir de aquí la app
+    trabaja sola y el cliente nunca necesita escribir la licencia larga.
+    """
+    bucket = "act:" + client_ip(request)
+    throttle_check(bucket)
+    aid = (body.access_id or "").strip().upper()
+    with engine.begin() as cx:
+        row = cx.execute(select(tenants).where(tenants.c.access_id == aid)).first()
+    if not row or not verify_secret(body.pin, row.pin_hash):
+        throttle_fail(bucket)
+        raise HTTPException(401, "ID de acceso o PIN incorrectos")
+    if row.status in ("Suspendido", "Baja"):
+        raise HTTPException(403, f"Licencia {row.status.lower()} — contacta con el proveedor")
+    throttle_ok(bucket)
+    token = make_token({"role": "device", "tenant_id": row.id, "license": row.license_key})
+    return {"token": token, "license_key": row.license_key, "tenant": _tenant_public(row)}
+
+
 @app.post("/api/device/login")
 def device_login(body: DeviceLogin, request: Request):
     bucket = "dev:" + client_ip(request)

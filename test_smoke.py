@@ -168,6 +168,45 @@ ok("crear licencia con PIN no numérico -> 400", r.status_code==400)
 r = c.patch(f"/api/provider/tenants/{t['id']}", headers=PROV, json={"pin":"12"})
 ok("cambiar a PIN demasiado corto -> 400", r.status_code==400)
 
+# 20) ID de acceso corto: se genera al crear el local
+r = c.post("/api/provider/tenants", headers=PROV,
+           json={"business_name":"Bar Activacion","plan":"Pro","pin":"5150"})
+d = r.json()
+AID = d.get("access_id")
+ok("crear local devuelve access_id de 6 caracteres", bool(AID) and len(AID)==6)
+ok("access_id sin caracteres ambiguos (I,O,0,1)", not set("IO01") & set(AID))
+
+# 21) activación del dispositivo con ID + PIN (sin licencia)
+r = c.post("/api/device/activate", json={"access_id":AID,"pin":"5150"})
+ok("activar con ID+PIN correcto", r.status_code==200 and "token" in r.json())
+ok("la activación devuelve la licencia", r.json().get("license_key","").startswith("VTX-"))
+ACT = {"Authorization":"Bearer "+r.json()["token"]}
+
+# 22) el token de activación sirve para sincronizar directamente
+r = c.post("/api/sync", headers=ACT, json={})
+ok("el token de activación permite sincronizar", r.status_code==200)
+
+# 23) activación en minúsculas también funciona (se normaliza)
+r = c.post("/api/device/activate", json={"access_id":AID.lower(),"pin":"5150"})
+ok("ID de acceso admite minúsculas", r.status_code==200)
+
+# 24) credenciales incorrectas y licencia suspendida
+r = c.post("/api/device/activate", json={"access_id":AID,"pin":"0000"})
+ok("activar con PIN incorrecto -> 401", r.status_code==401)
+r = c.post("/api/device/activate", json={"access_id":"ZZZZZZ","pin":"5150"})
+ok("activar con ID inexistente -> 401", r.status_code==401)
+
+TID2 = d["id"]
+c.patch(f"/api/provider/tenants/{TID2}", headers=PROV, json={"status":"Suspendido"})
+r = c.post("/api/device/activate", json={"access_id":AID,"pin":"5150"})
+ok("activar con licencia suspendida -> 403", r.status_code==403)
+c.patch(f"/api/provider/tenants/{TID2}", headers=PROV, json={"status":"Activo"})
+
+# 25) el panel del proveedor expone el access_id para poder entregarlo
+r = c.get("/api/provider/tenants", headers=PROV)
+ok("el listado del proveedor incluye access_id",
+   all(t.get("access_id") for t in r.json()["tenants"]))
+
 passed = sum(1 for c_,_ in checks if c_)
 print(f"\n{passed}/{len(checks)} comprobaciones superadas")
 if passed != len(checks):
