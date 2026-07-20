@@ -1,0 +1,42 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "apps/android/**"
+      - "app/static/vortexpos.html"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Usar la ultima version de la app
+        run: cp ../../app/static/vortexpos.html www/index.html
+      - name: Instalar Capacitor
+        run: npm install
+      - name: Generar proyecto Android nativo
+        run: npx cap add android
+      - name: Iconos y splash
+        run: npx @capacitor/assets generate --android --iconBackgroundColor '#0b1020' --iconBackgroundColorDark '#0b1020' --splashBackgroundColor '#0b1020' --splashBackgroundColorDark '#0b1020'
+      - name: Sincronizar web a nativo
+        run: npx cap sync android
+      - name: Compilar APK
+        run: cd android && chmod +x gradlew && ./gradlew assembleDebug
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: vortexPOS-android-apk
+          path: apps/android/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
