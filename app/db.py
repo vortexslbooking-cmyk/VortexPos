@@ -42,6 +42,9 @@ tenants = Table(
     "tenants", metadata,
     Column("id", String(40), primary_key=True),
     Column("license_key", String(40), unique=True, nullable=False),
+    # ID de acceso corto y legible que se entrega al cliente junto al PIN.
+    # Con ID + PIN la app se activa sola: el cliente nunca ve la licencia larga.
+    Column("access_id", String(16), unique=True, nullable=True),
     Column("pin_hash", String(255), nullable=False),
     Column("business_name", String(200), nullable=False, default=""),
     Column("plan", String(20), nullable=False, default="Pro"),
@@ -71,5 +74,35 @@ records = Table(
 )
 
 
+def _column_exists(cx, table: str, column: str) -> bool:
+    """Comprobación portable (SQLite y Postgres) de si una columna ya existe."""
+    from sqlalchemy import inspect
+    try:
+        cols = inspect(cx).get_columns(table)
+        return any(c["name"] == column for c in cols)
+    except Exception:
+        return False
+
+
 def init_db():
     metadata.create_all(engine)
+    # Migración: instalaciones anteriores no tienen access_id. Se añade la columna
+    # y se genera un ID para cada local existente, sin perder ningún dato.
+    import secrets as _s
+    from sqlalchemy import text
+    with engine.begin() as cx:
+        if not _column_exists(cx, "tenants", "access_id"):
+            cx.execute(text("ALTER TABLE tenants ADD COLUMN access_id VARCHAR(16)"))
+        rows = cx.execute(text("SELECT id FROM tenants WHERE access_id IS NULL OR access_id = ''")).all()
+        for (tid,) in rows:
+            cx.execute(text("UPDATE tenants SET access_id = :a WHERE id = :i"),
+                       {"a": new_access_id(), "i": tid})
+
+
+_ACCESS_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sin I, O, 0, 1 (se confunden)
+
+
+def new_access_id() -> str:
+    """ID corto de 6 caracteres, fácil de dictar por teléfono."""
+    import secrets as _s
+    return "".join(_s.choice(_ACCESS_ALPHABET) for _ in range(6))
