@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+SQLAlchemy>=2.0
+PyJWT>=2.8
+# Driver de Postgres para producción (no hace falta en desarrollo con SQLite):
+psycopg[binary]>=3.1

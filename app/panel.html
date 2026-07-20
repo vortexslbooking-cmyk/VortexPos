@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vortexPOS Cloud · Panel de proveedor</title>
+<style>
+  :root{
+    --bg:#0b1020;--bg2:#0f1730;--panel:#111a2e;--panel2:#0e1626;--line:#213049;
+    --ink:#eaf0fb;--soft:#aebbd4;--muted:#7386a5;--brand:#5b8dff;--cloud:#38b4d6;
+    --ok:#3fca9a;--okb:#0e2a22;--warn:#e0a94a;--warnb:#2c2210;--bad:#f2726f;--badb:#2c1414;
+    --radius:16px;font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--ink);min-height:100vh}
+  button{font-family:inherit;cursor:pointer;border:none}
+  input,select{font-family:inherit;font-size:14px}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px}
+  .top{display:flex;align-items:center;gap:12px;padding:6px 0 22px}
+  .logo{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:800;
+    background:linear-gradient(135deg,var(--brand),var(--cloud));box-shadow:0 8px 22px -8px rgba(91,141,255,.7)}
+  .top h1{font-size:18px;font-weight:800;letter-spacing:-.2px}
+  .top small{display:block;color:var(--muted);font-weight:600;font-size:12px}
+  .spacer{flex:1}
+  .btn{display:inline-flex;align-items:center;gap:7px;padding:10px 16px;border-radius:11px;font-weight:700;font-size:14px;transition:.15s}
+  .btn-primary{background:var(--brand);color:#08122a}.btn-primary:hover{filter:brightness(1.08)}
+  .btn-ghost{background:var(--panel);color:var(--soft);border:1px solid var(--line)}.btn-ghost:hover{border-color:var(--brand)}
+  .btn-sm{padding:7px 11px;font-size:13px;border-radius:9px}
+  .btn-ok{background:var(--okb);color:var(--ok)}.btn-warn{background:var(--warnb);color:var(--warn)}.btn-bad{background:var(--badb);color:var(--bad)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+  /* login */
+  #login{max-width:380px;margin:9vh auto 0}
+  #login h2{font-size:20px;font-weight:800;margin-bottom:4px}
+  #login p{color:var(--muted);font-size:13px;margin-bottom:18px}
+  .field{margin-bottom:13px}
+  .field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px}
+  .field input{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:11px 12px;font-weight:600}
+  .field input:focus{outline:none;border-color:var(--brand)}
+  /* kpis */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 17px}
+  .kpi .k{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:800}
+  .kpi .v{font-size:26px;font-weight:800;margin-top:6px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+  /* table */
+  .section-head{display:flex;align-items:center;gap:12px;margin:6px 0 12px}
+  .section-head h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--soft)}
+  .section-head .line{flex:1;height:1px;background:var(--line)}
+  .tbl{width:100%;border-collapse:collapse}
+  .tbl th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:800;padding:11px 12px;border-bottom:1px solid var(--line)}
+  .tbl td{padding:12px;border-bottom:1px solid var(--line);font-size:14px;font-weight:600}
+  .tbl tr:hover td{background:var(--panel2)}
+  .tnum{font-variant-numeric:tabular-nums}
+  .st{font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.3px}
+  .st.Activo{background:var(--okb);color:var(--ok)}
+  .st.Pendiente{background:var(--warnb);color:var(--warn)}
+  .st.Suspendido{background:var(--badb);color:var(--bad)}
+  .st.Baja{background:#1b2740;color:var(--muted)}
+  .plan{font-size:11px;font-weight:700;color:var(--cloud)}
+  .row-actions{display:flex;gap:6px;flex-wrap:wrap}
+  /* modal */
+  .scrim{position:fixed;inset:0;background:rgba(2,6,23,.72);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .scrim.on{display:flex}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:18px;width:min(460px,96vw);max-height:90vh;overflow:auto;padding:22px}
+  .modal h3{font-size:17px;font-weight:800;margin-bottom:14px}
+  .lic{background:var(--okb);border:1px solid var(--ok);border-radius:12px;padding:14px;margin-top:8px}
+  .lic .kk{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:800}
+  .lic .vv{font-size:18px;font-weight:800;font-family:ui-monospace,monospace;color:var(--ok);margin-top:3px;word-break:break-all}
+  .hidden{display:none!important}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#08122a;border:1px solid var(--line);color:var(--ink);padding:12px 18px;border-radius:12px;font-weight:700;font-size:14px;z-index:80;opacity:0;transition:.3s}
+  .toast.on{opacity:1}
+  .toast.bad{border-color:var(--bad);color:var(--bad)}
+  .toast.ok{border-color:var(--ok);color:var(--ok)}
+  .muted{color:var(--muted);font-size:13px}
+  .prodline{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--line)}
+  /* Historial de cierres Z */
+  .zrow{border:1px solid var(--line);border-radius:11px;margin-bottom:8px;overflow:hidden;background:var(--panel2)}
+  .zhead{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;transition:.14s}
+  .zhead:hover{background:rgba(255,255,255,.03)}
+  .zhead .zid{font-weight:800;font-family:ui-monospace,monospace;font-size:13px;color:var(--cloud)}
+  .zhead .zdate{font-size:12px;color:var(--muted);font-weight:600}
+  .zhead .ztot{margin-left:auto;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums}
+  .zhead .zdesc{font-size:11px;font-weight:800;padding:3px 8px;border-radius:999px;white-space:nowrap}
+  .zd-ok{background:var(--okb);color:var(--ok)}
+  .zd-falta{background:var(--badb);color:var(--bad)}
+  .zd-sobra{background:var(--warnb);color:var(--warn)}
+  .zbody{display:none;padding:4px 12px 12px;border-top:1px solid var(--line)}
+  .zrow.open .zbody{display:block}
+  .zline{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;color:var(--soft)}
+  .zline b{font-variant-numeric:tabular-nums;color:var(--ink)}
+  .zline.tot{border-top:1px solid var(--line);margin-top:4px;padding-top:6px;font-weight:800}
+  .zline.tot span,.zline.tot b{color:var(--cloud)}
+  .zcaret{color:var(--muted);font-size:11px;transition:.2s}
+  .zrow.open .zcaret{transform:rotate(90deg)}
+  /* Editor de carta remota */
+  .me-in{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:8px 10px;font-weight:600;font-size:13px}
+  .me-in:focus{outline:none;border-color:var(--brand)}
+  .me-cat{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:rgba(255,255,255,.02)}
+  .me-cat-head{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+  .me-cat-head input{flex:1;min-width:0;font-weight:800}
+  .me-row{display:flex;gap:8px;align-items:center;padding:5px 0;border-top:1px dashed var(--line)}
+  .me-row input.nm{flex:1;min-width:0}
+  .me-row input.pr{width:84px;text-align:right}
+  .me-row.off input.nm{opacity:.5;text-decoration:line-through}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login" class="hidden">
+  <div class="card">
+    <div class="top" style="padding:0 0 16px"><div class="logo">V</div>
+      <div><h1>vortexPOS Cloud</h1><small>Panel de proveedor</small></div></div>
+    <h2>Iniciar sesión</h2>
+    <p>Acceso exclusivo del proveedor (VORTEX S.L.)</p>
+    <div class="field"><label>Email</label><input id="li-email" type="email" autocomplete="username"></div>
+    <div class="field"><label>Contraseña</label><input id="li-pass" type="password" autocomplete="current-password"></div>
+    <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Entrar</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="appview" class="wrap hidden">
+  <div class="top">
+    <div class="logo">V</div>
+    <div><h1>vortexPOS Cloud</h1><small>Panel de proveedor · todos los locales</small></div>
+    <div class="spacer"></div>
+    <button class="btn btn-primary btn-sm" onclick="openCreate()">+ Nuevo local</button>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Salir</button>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="section-head"><h2>Locales</h2><div class="line"></div>
+    <button class="btn btn-ghost btn-sm" onclick="loadTenants()">↻ Actualizar</button></div>
+  <div class="card" style="padding:6px">
+    <table class="tbl">
+      <thead><tr><th>Local</th><th>Licencia</th><th>Plan</th><th>Estado</th>
+        <th class="tnum">Ventas</th><th>Última conexión</th><th></th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODAL crear -->
+<div class="scrim" id="createScrim">
+  <div class="modal">
+    <h3>Nuevo local / licencia</h3>
+    <div class="field"><label>Nombre del negocio</label><input id="nc-name" placeholder="Ej: Bar El Rincón"></div>
+    <div class="field"><label>Plan</label>
+      <select id="nc-plan" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:11px 12px;font-weight:600">
+        <option>Básico</option><option selected>Pro</option><option>Premium</option></select></div>
+    <div class="field"><label>PIN de administrador (4–8 dígitos)</label><input id="nc-pin" inputmode="numeric" placeholder="Ej: 4821"></div>
+    <div id="nc-result" class="hidden"></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeCreate()">Cerrar</button>
+      <button class="btn btn-primary" style="flex:1" id="nc-save" onclick="doCreate()">Crear licencia</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL detalle -->
+<div class="scrim" id="detailScrim">
+  <div class="modal" id="detailBody"></div>
+</div>
+
+<!-- MODAL editor de carta remota -->
+<div class="scrim" id="menuScrim">
+  <div class="modal" style="width:min(560px,96vw)" id="menuBody"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = location.origin;
+let TOKEN = localStorage.getItem("vortex_cloud_token") || "";
+
+function toast(msg,type=""){const t=document.getElementById("toast");t.textContent=msg;t.className="toast on "+type;setTimeout(()=>t.className="toast",2400);}
+async function api(path, opts={}){
+  const headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
+  if(TOKEN) headers["Authorization"]="Bearer "+TOKEN;
+  const res = await fetch(API+path, Object.assign({}, opts, {headers}));
+  if(res.status===401){ logout(); throw new Error("Sesión caducada"); }
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.detail || ("Error "+res.status));
+  return data;
+}
+
+function show(view){
+  document.getElementById("login").classList.toggle("hidden", view!=="login");
+  document.getElementById("appview").classList.toggle("hidden", view!=="app");
+}
+async function doLogin(){
+  try{
+    const email=document.getElementById("li-email").value.trim();
+    const password=document.getElementById("li-pass").value;
+    const d = await api("/api/provider/login",{method:"POST",body:JSON.stringify({email,password})});
+    TOKEN=d.token; localStorage.setItem("vortex_cloud_token",TOKEN);
+    show("app"); loadTenants();
+  }catch(e){ toast(e.message,"bad"); }
+}
+function logout(){ TOKEN=""; localStorage.removeItem("vortex_cloud_token"); show("login"); }
+
+function fmtMoney(n){ return "€"+(Math.round((n||0)*100)/100).toFixed(2).replace(".",","); }
+function fmtDate(s){ if(!s) return "—"; const d=new Date(s); return d.toLocaleString("es-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}); }
+
+async function loadTenants(){
+  try{
+    const d = await api("/api/provider/tenants");
+    const ts = d.tenants;
+    const total = ts.reduce((a,t)=>a+(t.sales_total||0),0);
+    const kpi = [
+      ["Locales", ts.length, "var(--brand)"],
+      ["Activos", ts.filter(t=>t.status==="Activo").length, "var(--ok)"],
+      ["Suspendidos", ts.filter(t=>t.status==="Suspendido").length, "var(--bad)"],
+      ["Ventas acumuladas", fmtMoney(total), "var(--cloud)"],
+    ];
+    document.getElementById("kpis").innerHTML = kpi.map(([k,v,c])=>
+      `<div class="kpi"><div class="k">${k}</div><div class="v" style="color:${c}">${v}</div></div>`).join("");
+    document.getElementById("tbody").innerHTML = ts.length ? ts.map(t=>`
+      <tr>
+        <td><b>${esc(t.business_name||"—")}</b></td>
+        <td class="tnum muted">${t.license_key}</td>
+        <td><span class="plan">${t.plan}</span></td>
+        <td><span class="st ${t.status}">${t.status}</span></td>
+        <td class="tnum">${fmtMoney(t.sales_total)} <span class="muted">· ${t.sales_count}</span></td>
+        <td class="muted">${fmtDate(t.last_seen)}</td>
+        <td><div class="row-actions">
+          <button class="btn btn-ghost btn-sm" onclick='openDetail(${JSON.stringify(t.id)})'>Ver</button>
+          ${t.status==="Activo"
+            ? `<button class="btn btn-bad btn-sm" onclick='setStatus(${JSON.stringify(t.id)},"Suspendido")'>Suspender</button>`
+            : `<button class="btn btn-ok btn-sm" onclick='setStatus(${JSON.stringify(t.id)},"Activo")'>Activar</button>`}
+        </div></td>
+      </tr>`).join("") : `<tr><td colspan="7" class="muted" style="padding:26px;text-align:center">Aún no hay locales. Crea el primero con “+ Nuevo local”.</td></tr>`;
+  }catch(e){ toast(e.message,"bad"); }
+}
+function esc(s){return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");}
+
+async function setStatus(id,status){
+  try{ await api("/api/provider/tenants/"+id,{method:"PATCH",body:JSON.stringify({status})});
+    toast("Estado actualizado: "+status,"ok"); loadTenants(); }
+  catch(e){ toast(e.message,"bad"); }
+}
+
+function openCreate(){ document.getElementById("nc-result").classList.add("hidden");
+  document.getElementById("nc-result").innerHTML="";
+  document.getElementById("nc-save").classList.remove("hidden");
+  document.getElementById("nc-name").value=""; document.getElementById("nc-pin").value="";
+  document.getElementById("createScrim").classList.add("on"); }
+function closeCreate(){ document.getElementById("createScrim").classList.remove("on"); }
+async function doCreate(){
+  try{
+    const business_name=document.getElementById("nc-name").value.trim();
+    const plan=document.getElementById("nc-plan").value;
+    const pin=document.getElementById("nc-pin").value.trim();
+    if(!business_name) return toast("Escribe el nombre del negocio","bad");
+    if(!/^\d{4,8}$/.test(pin)) return toast("El PIN debe tener 4–8 dígitos","bad");
+    const d = await api("/api/provider/tenants",{method:"POST",body:JSON.stringify({business_name,plan,pin})});
+    const box=document.getElementById("nc-result");
+    box.className="lic"; box.innerHTML=`<div class="kk">Licencia creada · entrégala al cliente</div>
+      <div class="vv">${d.license_key}</div>
+      <div class="muted" style="margin-top:8px">PIN: <b>${d.pin}</b> · Plan: ${d.plan}</div>`;
+    document.getElementById("nc-save").classList.add("hidden");
+    loadTenants();
+  }catch(e){ toast(e.message,"bad"); }
+}
+
+function zClosuresHTML(list){
+  if(!list.length) return `<div class="muted">Este local aún no ha hecho ningún cierre Z.</div>`;
+  return list.map(c=>{
+    const dsc = typeof c.descuadre==="number" ? c.descuadre : null;
+    let badge = `<span class="zdesc" style="background:#1b2740;color:var(--muted)">sin arqueo</span>`;
+    if(dsc!==null){
+      if(Math.abs(dsc)<0.005) badge=`<span class="zdesc zd-ok">✓ cuadrada</span>`;
+      else if(dsc<0)          badge=`<span class="zdesc zd-falta">faltan ${fmtMoney(-dsc)}</span>`;
+      else                    badge=`<span class="zdesc zd-sobra">sobran ${fmtMoney(dsc)}</span>`;
+    }
+    const money0=v=>typeof v==="number"?fmtMoney(v):"—";
+    return `<div class="zrow" onclick="this.classList.toggle('open')">
+      <div class="zhead">
+        <span class="zcaret">▶</span>
+        <span class="zid">Z-${String(c.z??0).padStart(4,"0")}</span>
+        <span class="zdate">${fmtDate(c.to)}</span>
+        ${badge}
+        <span class="ztot">${fmtMoney(c.total)}</span>
+      </div>
+      <div class="zbody">
+        <div class="zline"><span>Ventas · ${c.tickets} tickets · ${c.items} artículos</span><b>${fmtMoney(c.total)}</b></div>
+        <div class="zline"><span>· Tarjeta</span><b>${fmtMoney(c.tarjeta)}</b></div>
+        <div class="zline"><span>· Efectivo</span><b>${fmtMoney(c.efectivo)}</b></div>
+        <div class="zline" style="margin-top:8px;color:var(--cloud);font-weight:800"><span>ARQUEO DE EFECTIVO</span><b></b></div>
+        <div class="zline"><span>Fondo inicial</span><b>${money0(c.fondoInicial)}</b></div>
+        <div class="zline"><span>+ Ventas en efectivo</span><b>${money0(c.ventasEfectivo)}</b></div>
+        <div class="zline"><span>+ Entradas</span><b>${money0(c.entradas)}</b></div>
+        <div class="zline"><span>− Salidas</span><b>${money0(c.salidas)}</b></div>
+        <div class="zline tot"><span>= Esperado en cajón</span><b>${money0(c.esperado)}</b></div>
+        <div class="zline"><span>Contado por el local</span><b>${money0(c.contado)}</b></div>
+        <div class="zline"><span>Descuadre</span><b style="color:${dsc===null?'var(--muted)':(Math.abs(dsc)<0.005?'var(--ok)':(dsc<0?'var(--bad)':'var(--warn)'))}">${dsc===null?"—":(dsc<0?"−":"+")+fmtMoney(Math.abs(dsc))}</b></div>
+        <div class="zline"><span>Fondo dejado para la siguiente</span><b>${money0(c.fondoSiguiente)}</b></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function openDetail(id){
+  try{
+    const d = await api("/api/provider/tenants/"+id+"/summary");
+    const zc = await api("/api/provider/tenants/"+id+"/closures");
+    const t=d.tenant;
+    const methods=Object.entries(d.by_method).map(([m,v])=>`<div class="prodline"><span>${m}</span><b class="tnum">${fmtMoney(v)}</b></div>`).join("")||`<div class="muted">Sin cobros aún</div>`;
+    const prods=d.top_products.map(p=>`<div class="prodline"><span>${p.qty}× ${esc(p.name)}</span><b class="tnum">${fmtMoney(p.amount)}</b></div>`).join("")||`<div class="muted">Sin ventas aún</div>`;
+    const descuadreTotal = zc.closures.reduce((a,c)=>a+(typeof c.descuadre==="number"?c.descuadre:0),0);
+    document.getElementById("detailBody").innerHTML=`
+      <h3>${esc(t.business_name)} <span class="st ${t.status}" style="margin-left:6px">${t.status}</span></h3>
+      <div class="muted tnum" style="margin-bottom:14px">${t.license_key} · Plan ${t.plan}</div>
+      <div class="kpis">
+        <div class="kpi"><div class="k">Ventas</div><div class="v" style="color:var(--cloud)">${fmtMoney(d.sales_total)}</div></div>
+        <div class="kpi"><div class="k">Tickets</div><div class="v">${d.sales_count}</div></div>
+        <div class="kpi"><div class="k">Cierres Z</div><div class="v">${d.closures}</div></div>
+        ${zc.closures.length?`<div class="kpi"><div class="k">Descuadre acumulado</div><div class="v" style="font-size:20px;color:${Math.abs(descuadreTotal)<0.005?'var(--ok)':(descuadreTotal<0?'var(--bad)':'var(--warn)')}">${Math.abs(descuadreTotal)<0.005?'✓ 0,00':(descuadreTotal<0?'−':'+')+fmtMoney(Math.abs(descuadreTotal))}</div></div>`:""}
+      </div>
+      <div class="section-head"><h2>Cierres Z · arqueo de caja</h2><div class="line"></div></div>
+      <div class="muted" style="margin-bottom:8px">Toca un cierre para ver su arqueo completo.</div>
+      ${zClosuresHTML(zc.closures)}
+      <div class="section-head" style="margin-top:14px"><h2>Métodos de pago</h2><div class="line"></div></div>${methods}
+      <div class="section-head" style="margin-top:14px"><h2>Más vendidos</h2><div class="line"></div></div>${prods}
+      <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
+        <button class="btn btn-ghost" style="flex:1" onclick="closeDetail()">Cerrar</button>
+        <button class="btn btn-primary" style="flex:1" onclick='openMenuEditor(${JSON.stringify(t.id)})'>Editar carta</button>
+        ${t.status==="Activo"
+          ? `<button class="btn btn-bad" style="flex:1" onclick='setStatus(${JSON.stringify(t.id)},"Suspendido");closeDetail()'>Suspender licencia</button>`
+          : `<button class="btn btn-ok" style="flex:1" onclick='setStatus(${JSON.stringify(t.id)},"Activo");closeDetail()'>Reactivar licencia</button>`}
+      </div>`;
+    document.getElementById("detailScrim").classList.add("on");
+  }catch(e){ toast(e.message,"bad"); }
+}
+function closeDetail(){ document.getElementById("detailScrim").classList.remove("on"); }
+
+/* ---- Editor de carta remota (añadir / retirar productos por cliente) ---- */
+let MENUED={tid:null, menu:[]};
+function muid(){ return Math.random().toString(36).slice(2,9); }
+async function openMenuEditor(tid){
+  try{
+    const d = await api("/api/provider/tenants/"+tid+"/menu");
+    MENUED={tid, menu:(d.menu||[]).map(c=>({cat:c.cat, station:c.station==="barra"?"barra":"cocina",
+      items:(c.items||[]).map(i=>({id:i.id||muid(), name:i.name, price:i.price, off:!!i.off}))}))};
+    renderMenuEd();
+    document.getElementById("menuScrim").classList.add("on");
+  }catch(e){ toast(e.message,"bad"); }
+}
+function renderMenuEd(){
+  const m=MENUED.menu;
+  const cats=m.map((c,ci)=>`
+    <div class="me-cat">
+      <div class="me-cat-head">
+        <input class="me-in" value="${esc(c.cat)}" onchange="MENUED.menu[${ci}].cat=this.value.trim()||MENUED.menu[${ci}].cat">
+        <select class="me-in" onchange="MENUED.menu[${ci}].station=this.value">
+          <option value="cocina" ${c.station!=="barra"?"selected":""}>🍳 Cocina</option>
+          <option value="barra" ${c.station==="barra"?"selected":""}>🍹 Barra</option>
+        </select>
+        <button class="btn btn-bad btn-sm" onclick="delMenuCat(${ci})">✕</button>
+      </div>
+      ${c.items.map((it,ii)=>`
+        <div class="me-row ${it.off?'off':''}">
+          <input class="me-in nm" value="${esc(it.name)}" onchange="MENUED.menu[${ci}].items[${ii}].name=this.value.trim()||MENUED.menu[${ci}].items[${ii}].name">
+          <input class="me-in pr" type="number" step="0.05" min="0" value="${it.price}" onchange="MENUED.menu[${ci}].items[${ii}].price=Math.max(0,parseFloat(this.value)||0)">
+          <button class="btn ${it.off?'btn-ok':'btn-ghost'} btn-sm" onclick="MENUED.menu[${ci}].items[${ii}].off=!MENUED.menu[${ci}].items[${ii}].off;renderMenuEd()">${it.off?'Activar':'Agotar'}</button>
+          <button class="btn btn-bad btn-sm" onclick="delMenuItem(${ci},${ii})">✕</button>
+        </div>`).join("")}
+      <div class="me-row">
+        <input class="me-in nm" id="np-name-${ci}" placeholder="Nuevo producto">
+        <input class="me-in pr" id="np-price-${ci}" type="number" step="0.05" min="0" placeholder="€">
+        <button class="btn btn-ghost btn-sm" onclick="addMenuItem(${ci})">Añadir</button>
+      </div>
+    </div>`).join("");
+  document.getElementById("menuBody").innerHTML=`
+    <h3>Carta del local</h3>
+    <div class="muted" style="margin-bottom:12px">Añade, edita, agota o retira productos. Al guardar, la carta llega a las
+      tablets del cliente en su próxima sincronización (menos de 1 minuto con la app abierta).</div>
+    ${cats || `<div class="muted" style="margin-bottom:10px">Carta vacía — crea la primera categoría.</div>`}
+    <div class="me-row" style="border-top:none;margin-top:4px">
+      <input class="me-in nm" id="nc-cat-name" placeholder="Nueva categoría (ej: Cócteles)">
+      <select class="me-in" id="nc-cat-station"><option value="cocina">🍳 Cocina</option><option value="barra">🍹 Barra</option></select>
+      <button class="btn btn-ghost btn-sm" onclick="addMenuCat()">Crear</button>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeMenuEd()">Cancelar</button>
+      <button class="btn btn-primary" style="flex:1" onclick="saveMenuEd()">Guardar carta</button>
+    </div>`;
+}
+function addMenuItem(ci){
+  const n=document.getElementById("np-name-"+ci).value.trim();
+  const p=parseFloat(document.getElementById("np-price-"+ci).value);
+  if(!n) return toast("Escribe el nombre del producto","bad");
+  if(!(p>=0)) return toast("Introduce un precio válido","bad");
+  MENUED.menu[ci].items.push({id:muid(), name:n, price:p});
+  renderMenuEd();
+}
+function delMenuItem(ci,ii){
+  if(!confirm(`¿Retirar "${MENUED.menu[ci].items[ii].name}" de la carta?`)) return;
+  MENUED.menu[ci].items.splice(ii,1); renderMenuEd();
+}
+function delMenuCat(ci){
+  const c=MENUED.menu[ci];
+  if(c.items.length && !confirm(`¿Eliminar "${c.cat}" y sus ${c.items.length} producto(s)?`)) return;
+  MENUED.menu.splice(ci,1); renderMenuEd();
+}
+function addMenuCat(){
+  const n=document.getElementById("nc-cat-name").value.trim();
+  if(!n) return toast("Escribe el nombre de la categoría","bad");
+  if(MENUED.menu.some(c=>c.cat.toLowerCase()===n.toLowerCase())) return toast("Ya existe esa categoría","bad");
+  MENUED.menu.push({cat:n, station:document.getElementById("nc-cat-station").value, items:[]});
+  renderMenuEd();
+}
+async function saveMenuEd(){
+  try{
+    if(MENUED.menu.some(c=>!c.items.length) && !confirm("Hay categorías sin productos. ¿Guardar igualmente?")) return;
+    await api("/api/provider/tenants/"+MENUED.tid+"/menu",{method:"PUT",body:JSON.stringify({json:MENUED.menu})});
+    closeMenuEd();
+    toast("Carta guardada — llegará a las tablets al sincronizar","ok");
+  }catch(e){ toast(e.message,"bad"); }
+}
+function closeMenuEd(){ document.getElementById("menuScrim").classList.remove("on"); }
+
+[document.getElementById("createScrim"),document.getElementById("detailScrim"),document.getElementById("menuScrim")].forEach(s=>{
+  s.onclick=e=>{ if(e.target===s) s.classList.remove("on"); };
+});
+document.getElementById("li-pass").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
+
+// arranque
+(async()=>{
+  if(TOKEN){ try{ await api("/api/provider/tenants"); show("app"); loadTenants(); return; }catch(e){} }
+  show("login");
+})();
+</script>
+</body>
+</html>
