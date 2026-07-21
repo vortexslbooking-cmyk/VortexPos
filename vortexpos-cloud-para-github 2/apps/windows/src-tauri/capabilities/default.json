@@ -1,7 +1,0 @@
-{
-  "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Permisos mínimos de la ventana principal de vortexPOS",
-  "windows": ["main"],
-  "permissions": ["core:default"]
-}
