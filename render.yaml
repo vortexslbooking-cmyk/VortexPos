@@ -24,6 +24,11 @@ services:
 
 databases:
   - name: vortexpos-db
-    plan: free                      # Postgres gestionado con copias automáticas
+    # ATENCIÓN: el plan gratuito de Postgres en Render CADUCA y la base de datos
+    # se borra al vencer el plazo desde su creación. Antes de meter un cliente
+    # real, cámbialo a "basic-256mb" (o superior) en el panel de Render.
+    # Y en cualquier caso, programa `backup.py` a diario: es tu única red de
+    # seguridad si el proveedor de hosting falla. Ver README, sección "Copias".
+    plan: free
     databaseName: vortexpos
     postgresMajorVersion: "16"

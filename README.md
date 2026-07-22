@@ -100,9 +100,40 @@ server/
   Dockerfile        imagen para desplegar
   render.yaml       despliegue de un clic (web + Postgres)
   run-local.sh      arranque local
-  test_smoke.py     prueba de extremo a extremo (20 comprobaciones)
+  backup.py         copia de seguridad y restauración (sin dependencias)
+  test_smoke.py     prueba de extremo a extremo (56 comprobaciones)
   .env.example      variables de entorno
 ```
+
+## Copias de seguridad — obligatorio antes del primer cliente
+
+Los datos de tus clientes (ventas, cierres Z, licencias) viven en la base de
+datos de Render. Si esa base de datos desaparece —plan gratuito que caduca,
+error del proveedor, un borrado accidental— desaparecen con ella. `backup.py`
+descarga **todo** en un JSON con fecha que guardas tú:
+
+```bash
+export VORTEX_URL=https://vortexpos-cloud.onrender.com
+export VORTEX_EMAIL='tu-email'
+export VORTEX_PASSWORD='tu-contraseña'
+
+python3 backup.py                 # copia en ./copias-seguridad, conserva las 30 últimas
+python3 backup.py --restore copias-seguridad/vortexpos-2026-07-22_0400.json
+```
+
+Automatizar una copia diaria a las 04:00 (`crontab -e`):
+
+```
+0 4 * * * cd /ruta/a/server && /usr/bin/python3 backup.py >> backup.log 2>&1
+```
+
+La restauración **nunca borra**: actualiza los locales y añade el histórico que
+falte ignorando lo que ya existe, así que se puede lanzar sobre una base de
+datos vacía (recuperación total) o sobre una con datos (rellenar un hueco).
+Tras restaurar, cada cliente entra con **el mismo ID de acceso y PIN de siempre**.
+
+> El fichero de copia contiene los hash de los PIN. Guárdalo como guardarías una
+> contraseña: nunca en una carpeta compartida ni en el repositorio.
 
 ## Seguridad y cumplimiento
 

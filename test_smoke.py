@@ -207,6 +207,58 @@ r = c.get("/api/provider/tenants", headers=PROV)
 ok("el listado del proveedor incluye access_id",
    all(t.get("access_id") for t in r.json()["tenants"]))
 
+# 26) copia de seguridad: descarga completa
+r = c.get("/api/provider/backup", headers=PROV)
+ok("copia de seguridad requiere proveedor", c.get("/api/provider/backup").status_code==401)
+ok("copia de seguridad responde", r.status_code==200)
+DUMP = r.json()
+ok("la copia lleva locales, documentos y registros",
+   DUMP["counts"]["tenants"]>0 and DUMP["counts"]["documents"]>0 and DUMP["counts"]["records"]>0)
+ok("la copia incluye el hash del PIN (imprescindible para restaurar)",
+   all(t.get("pin_hash") for t in DUMP["tenants"]))
+
+# 27) restaurar sobre la BD actual no duplica ni pierde nada
+antes = c.get("/api/provider/tenants", headers=PROV).json()["tenants"]
+r = c.post("/api/provider/restore", headers=PROV, json=DUMP)
+ok("restaurar sobre datos existentes -> ok", r.status_code==200)
+ok("restaurar no duplica nada", r.json()["added"]=={"tenants":0,"documents":0,"records":0})
+despues = c.get("/api/provider/tenants", headers=PROV).json()["tenants"]
+ok("los totales de ventas se mantienen tras restaurar",
+   [t["sales_total"] for t in antes]==[t["sales_total"] for t in despues])
+
+# 28) formato desconocido se rechaza en vez de corromper la base de datos
+r = c.post("/api/provider/restore", headers=PROV, json={"vortexpos_backup":99,"tenants":[]})
+ok("copia de formato desconocido -> 400", r.status_code==400)
+
+# 29) recuperación real: base de datos vacía restaurada desde cero
+import tempfile as _tf, importlib, sys as _sys
+_tmp2 = _tf.NamedTemporaryFile(suffix=".db", delete=False)
+os.environ["DATABASE_URL"] = "sqlite:///" + _tmp2.name
+# Se recargan los tres a la vez: si backup_api se quedase cargado seguiría
+# apuntando al engine de la base anterior y la restauración iría al sitio erróneo.
+for _m in ("app.main", "app.backup_api", "app.db"):
+    _sys.modules.pop(_m, None)
+from app.main import app as app2
+c2 = TestClient(app2)
+tok2 = c2.post("/api/provider/login",
+               json={"email":"admin@vortexpos.local","password":"vortex-admin"}).json()["token"]
+PROV2 = {"Authorization":"Bearer "+tok2}
+ok("la base de datos nueva empieza vacía",
+   c2.get("/api/provider/tenants", headers=PROV2).json()["tenants"]==[])
+r = c2.post("/api/provider/restore", headers=PROV2, json=DUMP)
+ok("restaurar en base de datos vacía -> ok", r.status_code==200)
+ok("se recuperan todos los locales",
+   r.json()["added"]["tenants"]==DUMP["counts"]["tenants"])
+ok("se recupera todo el histórico",
+   r.json()["added"]["records"]==DUMP["counts"]["records"])
+rec = c2.get("/api/provider/tenants", headers=PROV2).json()["tenants"]
+ok("las ventas recuperadas cuadran con las originales",
+   sorted(t["sales_total"] for t in rec)==sorted(t["sales_total"] for t in antes))
+
+# 30) tras restaurar, el cliente entra con su MISMO ID y PIN de siempre
+r = c2.post("/api/device/activate", json={"access_id":AID,"pin":"5150"})
+ok("el cliente entra con su ID y PIN tras la recuperación", r.status_code==200)
+
 passed = sum(1 for c_,_ in checks if c_)
 print(f"\n{passed}/{len(checks)} comprobaciones superadas")
 if passed != len(checks):

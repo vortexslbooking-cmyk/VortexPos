@@ -4,9 +4,9 @@
 #   ./sync-app.sh
 set -e
 cd "$(dirname "$0")"
-SRC="../vortexpos.html"
+SRC="../01-app-pos/vortexpos.html"
 if [ ! -f "$SRC" ]; then
-  echo "No encuentro $SRC (ejecuta este script desde la carpeta server del proyecto)"
+  echo "No encuentro $SRC (ejecuta este script desde la carpeta 02-servidor-cloud del proyecto)"
   exit 1
 fi
 cp "$SRC" app/static/vortexpos.html
