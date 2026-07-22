@@ -582,3 +582,8 @@ def sync(body: SyncIn, dev=Depends(require_device)):
                                  "json": json.loads(r.json), "created_at": iso(r.created_at)})
 
     return {"documents": docs_out, "records": recs_out, "server_time": iso(now())}
+
+# ---------------------------------------------------------------- Copia de seguridad
+# Va al final a propósito: el router necesita que main esté completamente cargado.
+from .backup_api import router as backup_router  # noqa: E402
+app.include_router(backup_router)
