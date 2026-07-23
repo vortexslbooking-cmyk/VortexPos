@@ -2283,7 +2283,10 @@ const GATE = {
       });
       if(r.status === 401){ btn.disabled=false; return this.msg("ID de acceso o PIN incorrectos","err"); }
       if(r.status === 403){ btn.disabled=false; return this.msg("Licencia suspendida — contacta con tu proveedor","err"); }
-      if(!r.ok){ btn.disabled=false; return this.msg("El servidor no responde correctamente","err"); }
+      // 429 = freno anti fuerza-bruta tras varios intentos fallidos. Mensaje claro,
+      // no el genérico: el problema no es el servidor, es esperar un minuto.
+      if(r.status === 429){ btn.disabled=false; return this.msg("Demasiados intentos. Espera un minuto y vuelve a probar.","err"); }
+      if(!r.ok){ btn.disabled=false; return this.msg("El servidor tardó en responder. Espera unos segundos y prueba otra vez.","err"); }
       const d = await r.json();
       // Queda activado: se guarda la licencia (invisible para el cliente) y el PIN
       ADMIN.cloud = { url:url, licenseKey:d.license_key };
