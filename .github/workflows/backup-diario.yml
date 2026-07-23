@@ -1,0 +1,78 @@
+# Copia de seguridad diaria de la base de datos de vortexPOS.
+#
+# Cada día descarga TODA la base de datos del servidor y la guarda CIFRADA como
+# artefacto de GitHub. La copia contiene los hash de los PIN de los clientes, por
+# eso NUNCA se guarda en claro: se cifra con AES-256 usando una contraseña que
+# solo tú conoces (el secreto BACKUP_PASSPHRASE). Sin esa contraseña, el fichero
+# es inservible aunque alguien lo descargue.
+#
+# ── Requisitos (los añades tú una vez en GitHub) ─────────────────────────────
+# Settings → Secrets and variables → Actions → New repository secret:
+#   PROVIDER_EMAIL      el email del panel (el mismo que en Render)
+#   PROVIDER_PASSWORD   la contraseña del panel (la misma que en Render)
+#   BACKUP_PASSPHRASE   una contraseña larga que te inventas para cifrar la copia.
+#                       ⚠️ Guárdala en tu gestor de contraseñas: SIN ella no se
+#                       puede recuperar ninguna copia.
+#
+# ── Para restaurar una copia (cuando haga falta) ─────────────────────────────
+#   1) Descarga el artefacto desde la pestaña Actions y descomprímelo.
+#   2) Descífralo:
+#        openssl enc -d -aes-256-cbc -pbkdf2 -in vortexpos-FECHA.json.enc \
+#          -out copia.json -pass pass:TU_BACKUP_PASSPHRASE
+#   3) Restaura:  python3 backup.py --restore copia.json
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Copia de seguridad diaria
+
+on:
+  schedule:
+    - cron: "0 4 * * *"      # todos los días a las 04:00 UTC
+  workflow_dispatch:          # permite lanzarla a mano desde la pestaña Actions
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar y cifrar la copia de la base de datos
+        env:
+          URL: https://vortexpos-cloud.onrender.com
+          EMAIL: ${{ secrets.PROVIDER_EMAIL }}
+          PASSWORD: ${{ secrets.PROVIDER_PASSWORD }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${EMAIL:-}" ] || [ -z "${PASSWORD:-}" ] || [ -z "${PASS:-}" ]; then
+            echo "Faltan secretos: define PROVIDER_EMAIL, PROVIDER_PASSWORD y BACKUP_PASSPHRASE."
+            exit 1
+          fi
+
+          echo "Iniciando sesión en el panel (el servidor gratuito puede tardar ~50 s en despertar)…"
+          BODY=$(python3 -c 'import json,os; print(json.dumps({"email":os.environ["EMAIL"],"password":os.environ["PASSWORD"]}))')
+          TOKEN=$(curl -sS --max-time 150 -X POST "$URL/api/provider/login" \
+                    -H "Content-Type: application/json" -d "$BODY" \
+                  | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))')
+          if [ -z "$TOKEN" ]; then
+            echo "No se obtuvo token. Revisa PROVIDER_EMAIL / PROVIDER_PASSWORD."
+            exit 1
+          fi
+
+          echo "Descargando la copia completa…"
+          curl -sS --max-time 150 "$URL/api/provider/backup" \
+            -H "Authorization: Bearer $TOKEN" -o backup.json
+
+          # Sanidad: que sea un JSON válido y con contenido, no una página de error.
+          python3 -c 'import json,sys; d=json.load(open("backup.json")); print("Copia OK ->", d.get("counts",{})); sys.exit(0 if isinstance(d.get("tenants"),list) else 1)'
+
+          STAMP=$(date -u +%Y-%m-%d)
+          echo "Cifrando la copia (AES-256)…"
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in backup.json \
+            -out "vortexpos-$STAMP.json.enc" -pass env:PASS
+          rm -f backup.json    # el fichero en claro nunca sale de la máquina efímera
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+
+      - name: Guardar la copia cifrada como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: vortexpos-backup-${{ env.STAMP }}
+          path: "*.json.enc"
+          retention-days: 30    # conserva 30 días de copias diarias
