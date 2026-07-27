@@ -41,18 +41,41 @@ jobs:
           PASS: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
           set -euo pipefail
-          if [ -z "${EMAIL:-}" ] || [ -z "${PASSWORD:-}" ] || [ -z "${PASS:-}" ]; then
-            echo "Faltan secretos: define PROVIDER_EMAIL, PROVIDER_PASSWORD y BACKUP_PASSPHRASE."
+          # Diagnóstico preciso: dice CUÁL falta, sin revelar ningún valor.
+          FALTAN=""
+          [ -z "${EMAIL:-}" ]    && FALTAN="$FALTAN PROVIDER_EMAIL"
+          [ -z "${PASSWORD:-}" ] && FALTAN="$FALTAN PROVIDER_PASSWORD"
+          [ -z "${PASS:-}" ]     && FALTAN="$FALTAN BACKUP_PASSPHRASE"
+          if [ -n "$FALTAN" ]; then
+            echo "=========================================================="
+            echo " FALTAN O ESTAN VACIOS ESTOS SECRETOS:$FALTAN"
+            echo "=========================================================="
+            echo "Comprueba en: Settings > Secrets and variables > Actions"
+            echo "Deben estar en la seccion 'Repository secrets',"
+            echo "en la pestana 'Actions' (NO en Dependabot ni Codespaces)."
             exit 1
           fi
+          echo "Los 3 secretos estan presentes. Conectando con el servidor..."
 
           echo "Iniciando sesión en el panel (el servidor gratuito puede tardar ~50 s en despertar)…"
-          BODY=$(python3 -c 'import json,os; print(json.dumps({"email":os.environ["EMAIL"],"password":os.environ["PASSWORD"]}))')
-          TOKEN=$(curl -sS --max-time 150 -X POST "$URL/api/provider/login" \
-                    -H "Content-Type: application/json" -d "$BODY" \
-                  | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))')
+          # Se limpian espacios y saltos de línea invisibles: al pegar un secreto en
+          # GitHub es fácil que se cuele uno al final, y el servidor compara la
+          # contraseña carácter a carácter, así que un espacio de más la invalida.
+          BODY=$(python3 -c 'import json,os; print(json.dumps({"email":os.environ["EMAIL"].strip(),"password":os.environ["PASSWORD"].strip()}))')
+          RESP=$(curl -sS --max-time 150 -w "\n%{http_code}" -X POST "$URL/api/provider/login" \
+                    -H "Content-Type: application/json" -d "$BODY")
+          CODIGO=$(echo "$RESP" | tail -n1)
+          CUERPO=$(echo "$RESP" | sed '$d')
+          echo "Respuesta del servidor: HTTP $CODIGO"
+          TOKEN=$(printf '%s' "$CUERPO" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
           if [ -z "$TOKEN" ]; then
-            echo "No se obtuvo token. Revisa PROVIDER_EMAIL / PROVIDER_PASSWORD."
+            echo "=========================================================="
+            echo " NO SE PUDO ENTRAR EN EL PANEL (HTTP $CODIGO)"
+            echo "=========================================================="
+            [ "$CODIGO" = "401" ] && echo "401 = email o contrasena incorrectos. Deben ser los MISMOS que usas en https://vortexpos-cloud.onrender.com/"
+            [ "$CODIGO" = "429" ] && echo "429 = demasiados intentos. Espera un minuto y relanza."
+            echo "Longitud de los valores recibidos (para detectar espacios de mas):"
+            python3 -c 'import os; e=os.environ["EMAIL"]; p=os.environ["PASSWORD"]; print(f"  PROVIDER_EMAIL: {len(e)} caracteres (sin espacios: {len(e.strip())})"); print(f"  PROVIDER_PASSWORD: {len(p)} caracteres (sin espacios: {len(p.strip())})")'
             exit 1
           fi
 
