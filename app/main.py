@@ -19,11 +19,13 @@ from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
-from sqlalchemy import select, insert, update, and_
+from sqlalchemy import select, insert, update, delete, and_, or_, func as sa_func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from .db import engine, init_db, tenants, documents, records, new_access_id
+from .db import (engine, init_db, tenants, documents, records, leads, errors,
+                 new_access_id, sale_amount,
+                 LEAD_LINES, LEAD_STATUSES, LEAD_PRIORITIES)
 from .security import (hash_secret, verify_secret, make_token, read_token)
 
 PROVIDER_EMAIL = os.environ.get("PROVIDER_EMAIL", "admin@vortexpos.local")
@@ -268,25 +270,35 @@ def _tenant_public(row) -> Dict[str, Any]:
     }
 
 
+def _sales_by_tenant(cx) -> Dict[str, Dict[str, float]]:
+    """
+    Ventas agregadas de TODOS los locales en una sola consulta.
+
+    Antes se lanzaba una consulta por local y se parseaba en Python cada venta
+    del histórico: con 1.000 locales eran 1.000 consultas y millones de JSON por
+    cada carga del panel. Ahora lo suma la base de datos con la columna amount.
+    """
+    rows = cx.execute(
+        select(records.c.tenant_id,
+               sa_func.count().label("n"),
+               sa_func.coalesce(sa_func.sum(records.c.amount), 0).label("total"))
+        .where(records.c.kind == "sale")
+        .group_by(records.c.tenant_id)
+    ).all()
+    return {r.tenant_id: {"count": r.n, "total": round(float(r.total or 0), 2)} for r in rows}
+
+
 @app.get("/api/provider/tenants")
 def list_tenants(_=Depends(require_provider)):
     out = []
     with engine.begin() as cx:
         rows = cx.execute(select(tenants).order_by(tenants.c.created_at.desc())).all()
+        agg = _sales_by_tenant(cx)
         for r in rows:
-            sales = cx.execute(
-                select(records.c.json).where(and_(
-                    records.c.tenant_id == r.id, records.c.kind == "sale"))
-            ).all()
-            total = 0.0
-            for (j,) in sales:
-                try:
-                    total += float(json.loads(j).get("total", 0) or 0)
-                except Exception:
-                    pass
+            s = agg.get(r.id, {"count": 0, "total": 0.0})
             t = _tenant_public(r)
-            t["sales_count"] = len(sales)
-            t["sales_total"] = round(total, 2)
+            t["sales_count"] = s["count"]
+            t["sales_total"] = s["total"]
             out.append(t)
     return {"tenants": out}
 
@@ -563,7 +575,8 @@ def sync(body: SyncIn, dev=Depends(require_device)):
             payload = json.dumps(rec.payload, ensure_ascii=False)
             ts = parse_iso(rec.created_at)
             values = dict(tenant_id=tid, kind=rec.kind, record_id=rec.record_id,
-                          json=payload, created_at=ts)
+                          json=payload, created_at=ts,
+                          amount=sale_amount(rec.payload) if rec.kind == "sale" else None)
             ins = sqlite_insert(records) if is_sqlite else pg_insert(records)
             cx.execute(ins.values(**values).on_conflict_do_nothing(
                 index_elements=["tenant_id", "kind", "record_id"]))
@@ -584,7 +597,9 @@ def sync(body: SyncIn, dev=Depends(require_device)):
     return {"documents": docs_out, "records": recs_out, "server_time": iso(now())}
 
 
-# ---------------------------------------------------------------- Copia de seguridad
-# Va al final a propósito: el router necesita que main esté completamente cargado.
-from .backup_api import router as backup_router  # noqa: E402
+# ------------------------------------------------- Routers del centro de mando
+# Van al final a propósito: necesitan que main esté completamente cargado.
+from .backup_api import router as backup_router          # noqa: E402
+from .provider_api import router as provider_router      # noqa: E402
 app.include_router(backup_router)
+app.include_router(provider_router)

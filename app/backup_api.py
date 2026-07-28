@@ -14,7 +14,7 @@ from sqlalchemy import select, insert, update, and_
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from .db import engine, tenants, documents, records, new_access_id
+from .db import engine, tenants, documents, records, leads, new_access_id, sale_amount
 
 router = APIRouter()
 
@@ -45,6 +45,14 @@ def _parse_iso(s):
 
 BACKUP_FORMAT = 1
 
+# Campos de texto de un lead. La copia sigue siendo de formato 1 aunque ahora
+# incluya leads: al restaurar son opcionales, así que una copia antigua (sin
+# leads) se sigue restaurando sin tocar nada. Subir el número de formato habría
+# invalidado los ficheros que el fundador ya tiene guardados, y eso sí es grave.
+LEAD_FIELDS = ("id", "business_name", "contact", "phone", "email", "zone",
+               "business_type", "line", "status", "priority", "source", "notes",
+               "next_action", "next_date")
+
 
 @router.get("/api/provider/backup")
 def provider_backup(_=Depends(_provider)):
@@ -61,6 +69,7 @@ def provider_backup(_=Depends(_provider)):
         t_rows = cx.execute(select(tenants).order_by(tenants.c.created_at)).all()
         d_rows = cx.execute(select(documents)).all()
         r_rows = cx.execute(select(records).order_by(records.c.created_at)).all()
+        l_rows = cx.execute(select(leads).order_by(leads.c.created_at)).all()
 
     out_tenants = [{
         "id": r.id, "license_key": r.license_key,
@@ -77,13 +86,20 @@ def provider_backup(_=Depends(_provider)):
         "tenant_id": r.tenant_id, "kind": r.kind, "record_id": r.record_id,
         "json": r.json, "created_at": _iso(r.created_at),
     } for r in r_rows]
+    out_leads = [dict({f: getattr(r, f) for f in LEAD_FIELDS},
+                      created_at=_iso(r.created_at), updated_at=_iso(r.updated_at))
+                 for r in l_rows]
 
+    # Los leads SÍ entran en la copia: son el trabajo comercial del fundador y
+    # perderlos sería tan grave como perder las ventas. Los fallos (tabla errors)
+    # no entran a propósito: son diagnóstico desechable, no patrimonio.
     return {
         "vortexpos_backup": BACKUP_FORMAT,
         "created_at": _iso(_now()),
         "counts": {"tenants": len(out_tenants), "documents": len(out_docs),
-                   "records": len(out_recs)},
+                   "records": len(out_recs), "leads": len(out_leads)},
         "tenants": out_tenants, "documents": out_docs, "records": out_recs,
+        "leads": out_leads,
     }
 
 
@@ -92,6 +108,7 @@ class RestoreIn(BaseModel):
     tenants: List[Dict[str, Any]] = []
     documents: List[Dict[str, Any]] = []
     records: List[Dict[str, Any]] = []
+    leads: List[Dict[str, Any]] = []      # ausente en copias anteriores: se ignora
 
 
 @router.post("/api/provider/restore")
@@ -106,7 +123,7 @@ def provider_restore(body: RestoreIn, _=Depends(_provider)):
         raise HTTPException(400, "Formato de copia desconocido — usa un fichero "
                                  f"generado por esta versión (formato {BACKUP_FORMAT})")
     is_sqlite = engine.dialect.name == "sqlite"
-    added = {"tenants": 0, "documents": 0, "records": 0}
+    added = {"tenants": 0, "documents": 0, "records": 0, "leads": 0}
     with engine.begin() as cx:
         for t in body.tenants:
             tid = t.get("id")
@@ -155,12 +172,41 @@ def provider_restore(body: RestoreIn, _=Depends(_provider)):
             payload = r.get("json")
             if not isinstance(payload, str):
                 payload = json.dumps(payload, ensure_ascii=False)
+            # El importe se recalcula al restaurar: si no, las ventas recuperadas
+            # no sumarían en las estadísticas del panel (records.amount a NULL).
+            amount = None
+            if kind == "sale":
+                try:
+                    amount = sale_amount(json.loads(payload))
+                except Exception:
+                    amount = 0.0
             ins = sqlite_insert(records) if is_sqlite else pg_insert(records)
             res = cx.execute(ins.values(
-                tenant_id=tid, kind=kind, record_id=rid, json=payload,
+                tenant_id=tid, kind=kind, record_id=rid, json=payload, amount=amount,
                 created_at=_parse_iso(r.get("created_at"))
             ).on_conflict_do_nothing(index_elements=["tenant_id", "kind", "record_id"]))
             added["records"] += (res.rowcount or 0)
+
+        for l in body.leads:
+            lid = l.get("id")
+            if not lid:
+                continue
+            values = {f: str(l.get(f) or "") for f in LEAD_FIELDS if f != "id"}
+            values.update(
+                id=lid,
+                line=values["line"] or "pos",
+                status=values["status"] or "nuevo",
+                priority=values["priority"] or "media",
+                created_at=_parse_iso(l.get("created_at")),
+                updated_at=_parse_iso(l.get("updated_at")),
+            )
+            exists = cx.execute(select(leads.c.id).where(leads.c.id == lid)).first()
+            if exists:
+                cx.execute(update(leads).where(leads.c.id == lid)
+                           .values(**{k: v for k, v in values.items() if k != "id"}))
+            else:
+                cx.execute(insert(leads).values(**values))
+                added["leads"] += 1
 
     return {"ok": True, "added": added}
 

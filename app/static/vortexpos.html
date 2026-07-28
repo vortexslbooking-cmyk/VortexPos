@@ -493,6 +493,10 @@ let S=null; // se asigna tras declarar para que seed() pueda usar prodById sin T
 S=load();
 
 function seed(){
+  // Los ejemplos se construyen SIEMPRE contra la carta de fábrica: al restablecer
+  // (wipeAll) S todavía apunta a la carta del cliente, cuyos ids no existen aquí,
+  // y prodById() devolvería null (rompía el restablecimiento).
+  const line=(pid,qty,notes="",ts=now(),status="nuevo")=>lineOf(DEFAULT_MENU,pid,qty,notes,ts,status);
   const t = (id,name,zone,seats,status="free")=>({id,name,zone,seats,status,orderId:null});
   const tables = [
     t("M1","Mesa 1","Salón",2), t("M2","Mesa 2","Salón",4),
@@ -531,11 +535,13 @@ function seed(){
     {id:uid(),name:"Empresa NexT",people:8,phone:"622 44 55 66",time:mkTime(2,30),tableId:null,status:"pending"},
   ];
 
+  // demo:true = venta de ejemplo. Nunca se envía a la nube (ver CLOUD.sync):
+  // el panel del proveedor solo debe ver ventas reales del local.
   const sales = [
     sale("M5","tarjeta", st-52*60000, [line("p4",1),line("p2",1),line("b1",2),line("d2",1)]),
     sale("B1","efectivo", st-70*60000, [line("b1",2),line("b5",1)]),
     sale("M1","tarjeta", st-95*60000, [line("e2",1),line("p3",1),line("b2",2),line("d1",2)]),
-  ];
+  ].map(s=>({...s,demo:true}));
 
   const s={tables, orders, reservations, sales, closures:[], zCounter:0, sessionStart:st, seededAt:st, cashFloat:100, cashMoves:[]};
   migrate(s);
@@ -544,8 +550,9 @@ function seed(){
 
 function mkTime(hAdd,mAdd){ const d=new Date(now()+hAdd*3600000+mAdd*60000); return d.getTime(); }
 function mkOrder(tableId){ return {id:uid(),tableId,openedAt:now(),items:[]}; }
-function line(pid,qty,notes="",ts=now(),status="nuevo"){
-  const p=prodById(pid);
+function line(pid,qty,notes="",ts=now(),status="nuevo"){ return lineOf((S&&S.menu)?S.menu:DEFAULT_MENU,pid,qty,notes,ts,status); }
+function lineOf(menu,pid,qty,notes="",ts=now(),status="nuevo"){ // línea contra una carta concreta
+  const p=findProd(pid,menu);
   return {lid:uid(),pid,name:p.name,price:p.price,station:p.station,qty,notes,createdAt:ts,status};
 }
 function sale(tableId,method,ts,items){
@@ -553,6 +560,20 @@ function sale(tableId,method,ts,items){
   const w=(typeof currentStaff==="function")?currentStaff():null;   // quién cobró
   return {id:uid(),tableId,method,paidAt:ts,items,total,
           staffId:w?w.id:"", staffName:w?w.name:""};
+}
+
+/* Deja el dispositivo listo para un local REAL: fuera todo lo sembrado por seed().
+   Se llama al activar contra la nube, ANTES de la primera sincronización, porque
+   las ventas de ejemplo no pueden llegar al panel del proveedor como reales ni
+   descuadrar el primer cierre Z del bar (efectivo y fondo de caja ficticios).
+   La carta NO se toca: puede ser ya la del cliente (la carga el instalador o
+   llega en el primer PULL de la nube). */
+function clearDemoData(s=S){
+  s.tables.forEach(t=>{ t.status="free"; t.orderId=null; });
+  s.orders={}; s.reservations=[]; s.sales=[]; s.closures=[];
+  s.zCounter=0; s.cashFloat=0; s.cashMoves=[]; s.cloudAcked={};
+  s.sessionStart=now();
+  persist(s);
 }
 
 function load(){
@@ -1557,7 +1578,10 @@ function renderBill(){
   document.getElementById("payCard").onclick=()=>charge("tarjeta");
 }
 function charge(method){
-  const t=S.tables.find(x=>x.id===activeTableId); const o=tableOrder(t);
+  const t=S.tables.find(x=>x.id===activeTableId);
+  // doble toque durante la animación del cajón: el primer cobro ya cerró la mesa
+  if(!t){toast("Esa cuenta ya se ha cobrado","info");closeDrawer();return;}
+  const o=tableOrder(t);
   if(!o||!o.items.length){toast("La comanda está vacía — nada que cobrar","bad");return;}
   const s=sale(t.id,method,now(),o.items.map(i=>({...i})));
   S.sales.push(s);
@@ -1996,6 +2020,9 @@ function printHTML(html,force){
     setTimeout(()=>f.remove(),2000);
   },80);
 }
+/* Aviso legal fijo del piloto: vortexPOS es gestión interna, la factura la emite
+   la caja del bar. Va en TODOS los impresos y NO es editable desde el panel. */
+const LEGAL_NOTE = '<div class="c">Documento interno — sin validez fiscal</div>';
 function ticketComandaHTML(tableName,station,items){
   const b=ADMIN.business;
   const rows=items.map(i=>`<tr><td class="qty">${i.qty}×</td><td>${esc(i.name)}</td></tr>${i.notes?`<tr><td></td><td class="note">&gt;&gt; ${esc(i.notes)}</td></tr>`:""}`).join("");
@@ -2008,7 +2035,8 @@ function ticketComandaHTML(tableName,station,items){
     <div class="hr"></div>
     <table>${rows}</table>
     <div class="hr"></div>
-    <div class="c">vortexPOS</div>`;
+    <div class="c">vortexPOS</div>
+    ${LEGAL_NOTE}`;
 }
 function ticketReceiptHTML(tableName,items,method){
   const b=ADMIN.business;
@@ -2029,7 +2057,8 @@ function ticketReceiptHTML(tableName,items,method){
       <tr><td>Pago</td><td class="amt">${esc(method)}</td></tr>
     </table>
     <div class="hr"></div>
-    ${b.ticketFooter?`<div class="c">${esc(b.ticketFooter)}</div>`:""}`;
+    ${b.ticketFooter?`<div class="c">${esc(b.ticketFooter)}</div>`:""}
+    ${LEGAL_NOTE}`;
 }
 function printComanda(tableName,items){
   if(!(ADMIN.printer.enabled&&ADMIN.printer.autoOnSend))return;
@@ -2161,7 +2190,8 @@ const CLOUD={
       // un cambio de servidor o restauración de copia).
       const acked=S.cloudAcked||(S.cloudAcked={});
       const pending=[
-        ...S.sales.map(s=>({kind:"sale",record_id:s.id,json:s,created_at:new Date(s.paidAt).toISOString()})),
+        // s.demo = venta sembrada por seed(): jamás sale del dispositivo
+        ...S.sales.filter(s=>!s.demo).map(s=>({kind:"sale",record_id:s.id,json:s,created_at:new Date(s.paidAt).toISOString()})),
         ...(S.closures||[]).map(c=>({kind:"closure",record_id:c.id,json:c,created_at:new Date(c.to).toISOString()}))
       ].filter(rec=>manual||!acked[rec.record_id]);
       const body={
@@ -2295,6 +2325,9 @@ const GATE = {
       ADMIN.activation = { activated:true, accessId:acc,
         businessName:(d.tenant&&d.tenant.business_name)||"", at:Date.now(), mode:"cloud" };
       persistAdmin();
+      // El local empieza LIMPIO: sin ventas, cierres ni movimientos de ejemplo y
+      // con fondo de caja 0. Debe ir ANTES de la primera sincronización.
+      clearDemoData();
       this.msg("✓ Dispositivo activado","ok");
       CLOUD.reset(); CLOUD.sync();
       setTimeout(() => { applyAdmin(); this.next(); }, 700);

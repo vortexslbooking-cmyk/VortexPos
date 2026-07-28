@@ -221,7 +221,7 @@ ok("la copia incluye el hash del PIN (imprescindible para restaurar)",
 antes = c.get("/api/provider/tenants", headers=PROV).json()["tenants"]
 r = c.post("/api/provider/restore", headers=PROV, json=DUMP)
 ok("restaurar sobre datos existentes -> ok", r.status_code==200)
-ok("restaurar no duplica nada", r.json()["added"]=={"tenants":0,"documents":0,"records":0})
+ok("restaurar no duplica nada", all(v==0 for v in r.json()["added"].values()))
 despues = c.get("/api/provider/tenants", headers=PROV).json()["tenants"]
 ok("los totales de ventas se mantienen tras restaurar",
    [t["sales_total"] for t in antes]==[t["sales_total"] for t in despues])
@@ -230,13 +230,164 @@ ok("los totales de ventas se mantienen tras restaurar",
 r = c.post("/api/provider/restore", headers=PROV, json={"vortexpos_backup":99,"tenants":[]})
 ok("copia de formato desconocido -> 400", r.status_code==400)
 
-# 29) recuperación real: base de datos vacía restaurada desde cero
+# ---------------------------------------------------------------------------
+# CENTRO DE MANDO DEL PROVEEDOR: leads, fallos y estadísticas
+# ---------------------------------------------------------------------------
+
+# 29) leads: los de la app de captación se importan solos al crear la base
+r = c.get("/api/provider/leads")
+ok("los leads exigen token de proveedor -> 401", r.status_code==401)
+r = c.get("/api/provider/leads", headers=PROV)
+LEADS0 = r.json()["leads"]
+ok("los leads de captación se importaron al arrancar", len(LEADS0)==14)
+ok("un lead conocido llegó con su teléfono",
+   any(l["business_name"].startswith("Cafe-Bar Ocana") and "640" in l["phone"] for l in LEADS0))
+ok("los leads importados entran en la línea pos y estado nuevo",
+   all(l["line"]=="pos" and l["status"]=="nuevo" for l in LEADS0))
+
+# 30) alta, validación y edición de un lead
+r = c.post("/api/provider/leads", headers=PROV, json={"business_name":""})
+ok("lead sin nombre -> 400", r.status_code==400)
+r = c.post("/api/provider/leads", headers=PROV,
+           json={"business_name":"Bar Pruebas","line":"inventada"})
+ok("lead con línea inexistente -> 400", r.status_code==400)
+r = c.post("/api/provider/leads", headers=PROV,
+           json={"business_name":"Bar Pruebas","next_date":"15/08/2026"})
+ok("lead con fecha en formato erróneo -> 400", r.status_code==400)
+r = c.post("/api/provider/leads", headers=PROV, json={
+    "business_name":"Hotel Marina","line":"agencia","priority":"alta",
+    "zone":"Torre del Mar","phone":"+34 600 11 22 33","next_action":"Llamar al dueño",
+    "next_date":"2020-01-01"})
+ok("crear lead -> ok", r.status_code==200)
+LEAD = r.json()["lead"]
+ok("el lead nuevo guarda línea, prioridad y próxima acción",
+   LEAD["line"]=="agencia" and LEAD["priority"]=="alta" and LEAD["next_action"]=="Llamar al dueño")
+
+r = c.get("/api/provider/leads?line=agencia", headers=PROV)
+ok("filtro por línea", len(r.json()["leads"])==1 and r.json()["leads"][0]["id"]==LEAD["id"])
+r = c.get("/api/provider/leads?status=nuevo", headers=PROV)
+ok("filtro por estado", len(r.json()["leads"])==15)
+r = c.get("/api/provider/leads?q=torre", headers=PROV)
+ok("búsqueda por texto (zona)", len(r.json()["leads"])>=2)
+
+r = c.patch("/api/provider/leads/"+LEAD["id"], headers=PROV,
+            json={"status":"interesado","next_date":"2026-09-01"})
+ok("editar lead: estado y próxima fecha",
+   r.status_code==200 and r.json()["lead"]["status"]=="interesado"
+   and r.json()["lead"]["next_date"]=="2026-09-01")
+r = c.patch("/api/provider/leads/"+LEAD["id"], headers=PROV, json={"status":"zombi"})
+ok("editar lead con estado inexistente -> 400", r.status_code==400)
+r = c.patch("/api/provider/leads/no-existe", headers=PROV, json={"status":"cliente"})
+ok("editar lead inexistente -> 404", r.status_code==404)
+
+r = c.post("/api/provider/leads", headers=PROV, json={"business_name":"Borrar esto"})
+BORRABLE = r.json()["lead"]["id"]
+ok("borrar lead", c.delete("/api/provider/leads/"+BORRABLE, headers=PROV).status_code==200)
+ok("borrar lead inexistente -> 404",
+   c.delete("/api/provider/leads/"+BORRABLE, headers=PROV).status_code==404)
+
+# 31) fallos: la app los reporta sola por un endpoint público y saneado
+r = c.post("/api/errors", json={"type":"sync","message":"No se pudo sincronizar",
+                                "app_version":"2.0.0","context":{"intentos":3}})
+ok("reportar un fallo no requiere token", r.status_code==200 and r.json()["ok"])
+r = c.post("/api/errors", json={"type":"sync","message":"No se pudo sincronizar",
+                                "app_version":"2.0.0","context":{"intentos":4}})
+ok("el mismo fallo repetido no crea otra fila", r.status_code==200)
+
+r = c.get("/api/provider/errors")
+ok("ver los fallos exige token de proveedor -> 401", r.status_code==401)
+r = c.get("/api/provider/errors", headers=PROV)
+ERRS = r.json()["errors"]
+ok("el fallo llega al panel una sola vez", len(ERRS)==1)
+ok("el fallo repetido cuenta las veces que ha pasado", ERRS[0]["hits"]==2)
+
+# datos personales de clientes finales: nunca deben quedar guardados
+r = c.post("/api/errors", json={"type":"pago","message":
+    "Fallo al cobrar a ana.perez@gmail.com tel 611223344 tarjeta 4539112233445566"})
+ok("reporte con datos personales -> ok", r.status_code==200)
+sucio = [e for e in c.get("/api/provider/errors", headers=PROV).json()["errors"]
+         if e["type"]=="pago"][0]
+ok("el email del cliente no se guarda", "ana.perez@gmail.com" not in sucio["message"])
+ok("el teléfono del cliente no se guarda", "611223344" not in sucio["message"])
+ok("el número de tarjeta no se guarda", "4539112233445566" not in sucio["message"])
+
+# atribución del local: solo se cree la que viene de un token de dispositivo
+r = c.post("/api/errors", json={"type":"impresora","message":"Sin papel",
+                                "tenant_id":"t_inventado"})
+ok("un tenant_id inventado se ignora", r.status_code==200)
+imp = [e for e in c.get("/api/provider/errors", headers=PROV).json()["errors"]
+       if e["type"]=="impresora"][0]
+ok("el fallo queda sin local si el tenant_id no existe", imp["tenant_id"] is None)
+r = c.post("/api/errors", headers=DEV1, json={"type":"caja","message":"Cajón atascado"})
+caja = [e for e in c.get("/api/provider/errors", headers=PROV).json()["errors"]
+        if e["type"]=="caja"][0]
+ok("con token del dispositivo, el fallo se atribuye a su local", caja["tenant_id"]==t["id"])
+ok("el panel muestra el nombre del local que falló", caja["business_name"]=="Bar El Rincón")
+
+# resolver un fallo y filtrar
+r = c.patch("/api/provider/errors/"+caja["id"], headers=PROV, json={"resolved":True})
+ok("marcar un fallo como resuelto", r.status_code==200)
+ok("filtro sin resolver", all(not e["resolved"] for e in
+   c.get("/api/provider/errors?resolved=false", headers=PROV).json()["errors"]))
+ok("filtro resueltos",
+   len(c.get("/api/provider/errors?resolved=true", headers=PROV).json()["errors"])==1)
+ok("resolver un fallo inexistente -> 404",
+   c.patch("/api/provider/errors/no-existe", headers=PROV, json={"resolved":True}).status_code==404)
+
+# el endpoint público está limitado: nadie puede inundar la base de datos
+for i in range(40):
+    last = c.post("/api/errors", json={"type":"spam","message":f"ruido {i}"})
+ok("el reporte público está limitado por IP -> 429", last.status_code==429)
+from app import provider_api as _pa
+_pa._ERR_HITS.clear()   # se libera el freno para el resto de la prueba
+
+# 32) estadísticas globales del negocio
+r = c.get("/api/provider/stats")
+ok("las estadísticas exigen token de proveedor -> 401", r.status_code==401)
+S = c.get("/api/provider/stats", headers=PROV).json()
+tenants_all = c.get("/api/provider/tenants", headers=PROV).json()["tenants"]
+ok("estadísticas: nº de locales", S["tenants"]["total"]==len(tenants_all))
+ok("estadísticas: locales por estado",
+   S["tenants"]["by_status"].get("Activo")==sum(1 for x in tenants_all if x["status"]=="Activo"))
+ok("estadísticas: ventas totales de todo el negocio",
+   abs(S["sales"]["total"]-sum(x["sales_total"] for x in tenants_all))<0.001)
+ok("estadísticas: ticket medio",
+   abs(S["sales"]["avg_ticket"]-round(S["sales"]["total"]/S["sales"]["count"],2))<0.011)
+ok("estadísticas: leads por estado", sum(S["leads"]["by_status"].values())==15)
+ok("estadísticas: leads por línea", S["leads"]["by_line"].get("agencia")==1)
+ok("estadísticas: fallos sin resolver", S["errors"]["unresolved"]>=2)
+ok("estadísticas: el resumen trae los últimos fallos", len(S["errors"]["recent"])>0)
+ok("estadísticas: identifica el motor de base de datos", S["system"]["database"]=="sqlite")
+
+# un lead con la fecha pasada aparece como pendiente de acción
+r = c.post("/api/provider/leads", headers=PROV,
+           json={"business_name":"Vence ayer","next_date":"2020-05-05",
+                 "next_action":"Enviar propuesta"})
+VENCIDO = r.json()["lead"]["id"]
+S2 = c.get("/api/provider/stats", headers=PROV).json()
+ok("un lead con fecha pasada requiere acción", S2["leads"]["due"]>=1 and
+   any(l["id"]==VENCIDO for l in S2["leads"]["due_list"]))
+c.patch("/api/provider/leads/"+VENCIDO, headers=PROV, json={"status":"cliente"})
+S3 = c.get("/api/provider/stats", headers=PROV).json()
+ok("un lead ya cerrado deja de pedir acción",
+   not any(l["id"]==VENCIDO for l in S3["leads"]["due_list"]))
+
+# 33) el panel es una sola página con todas las secciones
+r = c.get("/")
+ok("el panel trae la navegación por secciones",
+   all(s in r.text for s in ("Resumen","Locales","Leads","Fallos","Ajustes")))
+
+# 34) recuperación real: base de datos vacía restaurada desde cero
+# (se vuelve a tomar la copia para que incluya los leads recién creados)
+DUMP = c.get("/api/provider/backup", headers=PROV).json()
+ok("la copia de seguridad incluye los leads", DUMP["counts"]["leads"]==16)
 import tempfile as _tf, importlib, sys as _sys
 _tmp2 = _tf.NamedTemporaryFile(suffix=".db", delete=False)
 os.environ["DATABASE_URL"] = "sqlite:///" + _tmp2.name
-# Se recargan los tres a la vez: si backup_api se quedase cargado seguiría
-# apuntando al engine de la base anterior y la restauración iría al sitio erróneo.
-for _m in ("app.main", "app.backup_api", "app.db"):
+# Se recargan todos a la vez: si backup_api o provider_api se quedasen cargados
+# seguirían apuntando al engine de la base anterior y la restauración (o las
+# estadísticas) irían al sitio erróneo.
+for _m in ("app.main", "app.backup_api", "app.provider_api", "app.db"):
     _sys.modules.pop(_m, None)
 from app.main import app as app2
 c2 = TestClient(app2)
@@ -254,6 +405,14 @@ ok("se recupera todo el histórico",
 rec = c2.get("/api/provider/tenants", headers=PROV2).json()["tenants"]
 ok("las ventas recuperadas cuadran con las originales",
    sorted(t["sales_total"] for t in rec)==sorted(t["sales_total"] for t in antes))
+leads2 = c2.get("/api/provider/leads", headers=PROV2).json()["leads"]
+ok("el trabajo comercial (leads) se recupera entero", len(leads2)==DUMP["counts"]["leads"])
+ok("los leads se recuperan con su estado y su próxima acción",
+   any(l["business_name"]=="Hotel Marina" and l["status"]=="interesado"
+       and l["next_action"]=="Llamar al dueño" for l in leads2))
+ok("las estadísticas de la base recuperada cuadran con las originales",
+   abs(c2.get("/api/provider/stats", headers=PROV2).json()["sales"]["total"]
+       - sum(t["sales_total"] for t in antes)) < 0.001)
 
 # 30) tras restaurar, el cliente entra con su MISMO ID y PIN de siempre
 r = c2.post("/api/device/activate", json={"access_id":AID,"pin":"5150"})

@@ -3,78 +3,151 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>vortexPOS Cloud · Panel de proveedor</title>
+<title>vortexPOS Cloud · Centro de mando</title>
 <style>
   :root{
     --bg:#0b1020;--bg2:#0f1730;--panel:#111a2e;--panel2:#0e1626;--line:#213049;
-    --ink:#eaf0fb;--soft:#aebbd4;--muted:#7386a5;--brand:#5b8dff;--cloud:#38b4d6;
+    --ink:#eaf0fb;--soft:#aebbd4;--muted:#7386a5;
+    /* Identidad Vortex: azul #2563eb para acciones, cian #38bdf8 para datos.
+       --accent es el mismo azul aclarado: sobre fondo oscuro el #2563eb como
+       TEXTO no tiene contraste suficiente, así que solo se usa como relleno. */
+    --brand:#2563eb;--accent:#5b8dff;--cloud:#38bdf8;
     --ok:#3fca9a;--okb:#0e2a22;--warn:#e0a94a;--warnb:#2c2210;--bad:#f2726f;--badb:#2c1414;
     --radius:16px;font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:linear-gradient(180deg,var(--bg),var(--bg2));color:var(--ink);min-height:100vh}
+  body{background:linear-gradient(180deg,var(--bg),var(--bg2));background-attachment:fixed;color:var(--ink);min-height:100vh}
   button{font-family:inherit;cursor:pointer;border:none}
-  input,select{font-family:inherit;font-size:14px}
-  .wrap{max-width:1080px;margin:0 auto;padding:22px}
-  .top{display:flex;align-items:center;gap:12px;padding:6px 0 22px}
-  .logo{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:800;
-    background:linear-gradient(135deg,var(--brand),var(--cloud));box-shadow:0 8px 22px -8px rgba(91,141,255,.7)}
-  .top h1{font-size:18px;font-weight:800;letter-spacing:-.2px}
-  .top small{display:block;color:var(--muted);font-weight:600;font-size:12px}
-  .spacer{flex:1}
-  .btn{display:inline-flex;align-items:center;gap:7px;padding:10px 16px;border-radius:11px;font-weight:700;font-size:14px;transition:.15s}
-  .btn-primary{background:var(--brand);color:#08122a}.btn-primary:hover{filter:brightness(1.08)}
-  .btn-ghost{background:var(--panel);color:var(--soft);border:1px solid var(--line)}.btn-ghost:hover{border-color:var(--brand)}
+  input,select,textarea{font-family:inherit;font-size:14px}
+  a{color:var(--cloud)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:10px 16px;border-radius:11px;font-weight:700;font-size:14px;transition:.15s}
+  .btn-primary{background:var(--brand);color:#fff}.btn-primary:hover{filter:brightness(1.14)}
+  .btn-ghost{background:var(--panel);color:var(--soft);border:1px solid var(--line)}.btn-ghost:hover{border-color:var(--accent)}
   .btn-sm{padding:7px 11px;font-size:13px;border-radius:9px}
   .btn-ok{background:var(--okb);color:var(--ok)}.btn-warn{background:var(--warnb);color:var(--warn)}.btn-bad{background:var(--badb);color:var(--bad)}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:20px}
-  /* login */
-  #login{max-width:380px;margin:9vh auto 0}
+  .hidden{display:none!important}
+  .muted{color:var(--muted);font-size:13px}
+  .tnum{font-variant-numeric:tabular-nums}
+  .logo{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:800;flex:none;
+    background:linear-gradient(135deg,var(--brand),var(--cloud));box-shadow:0 8px 22px -8px rgba(37,99,235,.8)}
+
+  /* ---------- login ---------- */
+  #login{max-width:380px;margin:9vh auto 0;padding:0 18px}
   #login h2{font-size:20px;font-weight:800;margin-bottom:4px}
   #login p{color:var(--muted);font-size:13px;margin-bottom:18px}
   .field{margin-bottom:13px}
   .field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:5px}
-  .field input{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:11px 12px;font-weight:600}
-  .field input:focus{outline:none;border-color:var(--brand)}
-  /* kpis */
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+  .field input,.field select,.field textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:11px 12px;font-weight:600}
+  .field textarea{min-height:74px;resize:vertical;line-height:1.45}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--accent)}
+  .field-row{display:flex;gap:10px}.field-row>*{flex:1;min-width:0}
+
+  /* ---------- estructura: cabecera + navegación + contenido ---------- */
+  .topbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;
+    padding:11px 20px;background:rgba(11,16,32,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  .topbar h1{font-size:16px;font-weight:800;letter-spacing:-.2px;line-height:1.1}
+  .topbar small{display:block;color:var(--muted);font-weight:600;font-size:11.5px}
+  .spacer{flex:1}
+  .shell{display:grid;grid-template-columns:214px minmax(0,1fr);gap:24px;max-width:1200px;margin:0 auto;padding:20px 20px 60px}
+  .nav{position:sticky;top:76px;align-self:start;display:flex;flex-direction:column;gap:4px}
+  .nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;color:var(--soft);
+    border:1px solid transparent;border-radius:11px;padding:11px 13px;font-weight:700;font-size:14px;transition:.14s}
+  .nav button:hover{background:var(--panel);color:var(--ink)}
+  .nav button.on{background:rgba(37,99,235,.18);border-color:rgba(37,99,235,.55);color:#fff}
+  .nav .ico{width:20px;text-align:center;font-size:15px}
+  .nav .pill{margin-left:auto;background:var(--badb);color:var(--bad);font-size:11px;font-weight:800;border-radius:999px;padding:1px 7px}
+  .page-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .page-head h2{font-size:20px;font-weight:800;letter-spacing:-.3px}
+  .page-head p{color:var(--muted);font-size:12.5px;font-weight:600}
+  .sec{display:none}.sec.on{display:block}
+
+  /* ---------- kpis ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:12px;margin-bottom:18px}
   .kpi{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 17px}
   .kpi .k{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:800}
-  .kpi .v{font-size:26px;font-weight:800;margin-top:6px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
-  /* table */
-  .section-head{display:flex;align-items:center;gap:12px;margin:6px 0 12px}
-  .section-head h2{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--soft)}
+  .kpi .v{font-size:25px;font-weight:800;margin-top:6px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+  .kpi .s{font-size:11.5px;color:var(--muted);font-weight:700;margin-top:2px}
+
+  /* ---------- tablas ---------- */
+  .section-head{display:flex;align-items:center;gap:12px;margin:22px 0 12px}
+  .section-head h3{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--soft)}
   .section-head .line{flex:1;height:1px;background:var(--line)}
   .tbl{width:100%;border-collapse:collapse}
   .tbl th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:800;padding:11px 12px;border-bottom:1px solid var(--line)}
-  .tbl td{padding:12px;border-bottom:1px solid var(--line);font-size:14px;font-weight:600}
+  .tbl td{padding:12px;border-bottom:1px solid var(--line);font-size:14px;font-weight:600;vertical-align:middle}
+  .tbl tr:last-child td{border-bottom:none}
   .tbl tr:hover td{background:var(--panel2)}
-  .tnum{font-variant-numeric:tabular-nums}
-  .st{font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.3px}
+  .row-actions{display:flex;gap:6px;flex-wrap:wrap}
+  .empty{padding:26px;text-align:center;color:var(--muted);font-size:13px}
+  /* estados */
+  .st{display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
   .st.Activo{background:var(--okb);color:var(--ok)}
   .st.Pendiente{background:var(--warnb);color:var(--warn)}
   .st.Suspendido{background:var(--badb);color:var(--bad)}
   .st.Baja{background:#1b2740;color:var(--muted)}
   .plan{font-size:11px;font-weight:700;color:var(--cloud)}
-  .row-actions{display:flex;gap:6px;flex-wrap:wrap}
-  /* modal */
-  .scrim{position:fixed;inset:0;background:rgba(2,6,23,.72);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+  .dot.alta{background:var(--bad)}.dot.media{background:var(--warn)}.dot.baja{background:var(--muted)}
+
+  /* ---------- filtros ---------- */
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .filters select,.filters input{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    border-radius:10px;padding:9px 11px;font-weight:600;font-size:13px}
+  .filters input{flex:1;min-width:150px}
+  .filters select:focus,.filters input:focus{outline:none;border-color:var(--accent)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{background:var(--panel);border:1px solid var(--line);color:var(--soft);border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:700}
+  .chip.on{background:rgba(37,99,235,.18);border-color:rgba(37,99,235,.55);color:#fff}
+
+  /* ---------- leads ---------- */
+  .lst{display:inline-block;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap}
+  .lst.nuevo{background:#1b2740;color:var(--soft)}
+  .lst.contactado{background:rgba(56,189,248,.14);color:var(--cloud)}
+  .lst.interesado{background:var(--warnb);color:var(--warn)}
+  .lst.piloto{background:rgba(37,99,235,.2);color:var(--accent)}
+  .lst.cliente{background:var(--okb);color:var(--ok)}
+  .lst.descartado{background:#171f33;color:var(--muted)}
+  .inline-sel{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 8px;font-weight:700;font-size:12.5px}
+  .inline-sel:focus{outline:none;border-color:var(--accent)}
+  .due{color:var(--bad);font-weight:800}
+  .lead-sub{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:2px}
+  .contact a{text-decoration:none;font-weight:700;font-size:13px}
+
+  /* ---------- fallos ---------- */
+  .erow{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:13px 14px;margin-bottom:9px}
+  .erow.done{opacity:.55}
+  .ehead{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .etype{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;padding:3px 8px;border-radius:999px;background:var(--badb);color:var(--bad)}
+  .erow.done .etype{background:var(--okb);color:var(--ok)}
+  .ehits{font-size:11px;font-weight:800;background:var(--warnb);color:var(--warn);border-radius:999px;padding:3px 8px}
+  .emsg{margin-top:8px;font-size:14px;font-weight:700;line-height:1.4;word-break:break-word}
+  .emeta{margin-top:6px;font-size:11.5px;color:var(--muted);font-weight:600}
+  .ectx{margin-top:8px}
+  .ectx summary{cursor:pointer;font-size:12px;color:var(--soft);font-weight:700}
+  .ectx pre{margin-top:6px;background:#080d1a;border:1px solid var(--line);border-radius:9px;padding:10px;
+    font-size:11.5px;color:var(--soft);overflow:auto;max-height:180px;white-space:pre-wrap;word-break:break-word}
+
+  /* ---------- modales ---------- */
+  .scrim{position:fixed;inset:0;background:rgba(2,6,23,.72);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
   .scrim.on{display:flex}
   .modal{background:var(--panel);border:1px solid var(--line);border-radius:18px;width:min(460px,96vw);max-height:90vh;overflow:auto;padding:22px}
   .modal h3{font-size:17px;font-weight:800;margin-bottom:14px}
+  .modal-actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+  .modal-actions .btn{flex:1;min-width:120px}
   .lic{background:var(--okb);border:1px solid var(--ok);border-radius:12px;padding:14px;margin-top:8px}
   .lic .kk{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:800}
   .lic .vv{font-size:18px;font-weight:800;font-family:ui-monospace,monospace;color:var(--ok);margin-top:3px;word-break:break-all}
-  .hidden{display:none!important}
-  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#08122a;border:1px solid var(--line);color:var(--ink);padding:12px 18px;border-radius:12px;font-weight:700;font-size:14px;z-index:80;opacity:0;transition:.3s}
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#08122a;border:1px solid var(--line);color:var(--ink);
+    padding:12px 18px;border-radius:12px;font-weight:700;font-size:14px;z-index:80;opacity:0;transition:.3s;pointer-events:none;max-width:92vw;text-align:center}
   .toast.on{opacity:1}
   .toast.bad{border-color:var(--bad);color:var(--bad)}
   .toast.ok{border-color:var(--ok);color:var(--ok)}
-  .muted{color:var(--muted);font-size:13px}
-  .prodline{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--line)}
-  /* Historial de cierres Z */
+  .prodline{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:5px 0;border-bottom:1px dashed var(--line)}
+
+  /* ---------- cierres Z ---------- */
   .zrow{border:1px solid var(--line);border-radius:11px;margin-bottom:8px;overflow:hidden;background:var(--panel2)}
-  .zhead{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;transition:.14s}
+  .zhead{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;transition:.14s;flex-wrap:wrap}
   .zhead:hover{background:rgba(255,255,255,.03)}
   .zhead .zid{font-weight:800;font-family:ui-monospace,monospace;font-size:13px;color:var(--cloud)}
   .zhead .zdate{font-size:12px;color:var(--muted);font-weight:600}
@@ -85,15 +158,16 @@
   .zd-sobra{background:var(--warnb);color:var(--warn)}
   .zbody{display:none;padding:4px 12px 12px;border-top:1px solid var(--line)}
   .zrow.open .zbody{display:block}
-  .zline{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;color:var(--soft)}
+  .zline{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:4px 0;color:var(--soft)}
   .zline b{font-variant-numeric:tabular-nums;color:var(--ink)}
   .zline.tot{border-top:1px solid var(--line);margin-top:4px;padding-top:6px;font-weight:800}
   .zline.tot span,.zline.tot b{color:var(--cloud)}
   .zcaret{color:var(--muted);font-size:11px;transition:.2s}
   .zrow.open .zcaret{transform:rotate(90deg)}
-  /* Editor de carta remota */
-  .me-in{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:8px 10px;font-weight:600;font-size:13px}
-  .me-in:focus{outline:none;border-color:var(--brand)}
+
+  /* ---------- editor de carta ---------- */
+  .me-in{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:8px 10px;font-weight:600;font-size:13px;min-width:0}
+  .me-in:focus{outline:none;border-color:var(--accent)}
   .me-cat{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:rgba(255,255,255,.02)}
   .me-cat-head{display:flex;gap:8px;align-items:center;margin-bottom:6px}
   .me-cat-head input{flex:1;min-width:0;font-weight:800}
@@ -101,15 +175,42 @@
   .me-row input.nm{flex:1;min-width:0}
   .me-row input.pr{width:84px;text-align:right}
   .me-row.off input.nm{opacity:.5;text-decoration:line-through}
+
+  /* ---------- móvil: el fundador consulta el panel desde el teléfono ---------- */
+  @media (max-width:900px){
+    .shell{grid-template-columns:1fr;gap:0;padding:0 0 60px}
+    .nav{position:sticky;top:57px;z-index:25;flex-direction:row;gap:6px;overflow-x:auto;padding:10px 14px;
+      background:rgba(11,16,32,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+      scrollbar-width:none;-webkit-overflow-scrolling:touch}
+    .nav::-webkit-scrollbar{display:none}
+    .nav button{width:auto;white-space:nowrap;padding:9px 13px;border:1px solid var(--line);background:var(--panel)}
+    .nav .pill{margin-left:4px}
+    .main{padding:18px 14px 0}
+    .topbar{padding:10px 14px}
+    .topbar h1{font-size:15px}
+    /* Tablas -> fichas apiladas: en 380px una tabla de 7 columnas es ilegible */
+    .tbl thead{display:none}
+    .tbl,.tbl tbody,.tbl tr,.tbl td{display:block;width:100%}
+    .tbl tr{border:1px solid var(--line);border-radius:12px;margin-bottom:10px;background:var(--panel2);padding:4px 2px}
+    .tbl tr:hover td{background:transparent}
+    .tbl td{border-bottom:none;padding:7px 12px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .tbl td::before{content:attr(data-l);font-size:11px;text-transform:uppercase;letter-spacing:.4px;
+      color:var(--muted);font-weight:800;flex:none}
+    .tbl td.full{display:block}
+    .tbl td.full::before{display:block;margin-bottom:4px}
+    .row-actions{justify-content:flex-end}
+    .kpi .v{font-size:22px}
+  }
 </style>
 </head>
 <body>
 
-<!-- LOGIN -->
+<!-- ============================ LOGIN ============================ -->
 <div id="login" class="hidden">
   <div class="card">
-    <div class="top" style="padding:0 0 16px"><div class="logo">V</div>
-      <div><h1>vortexPOS Cloud</h1><small>Panel de proveedor</small></div></div>
+    <div style="display:flex;align-items:center;gap:12px;padding:0 0 16px"><div class="logo">V</div>
+      <div><h1 style="font-size:18px;font-weight:800">vortexPOS Cloud</h1>
+        <small class="muted" style="font-weight:600">Centro de mando</small></div></div>
     <h2>Iniciar sesión</h2>
     <p>Acceso exclusivo del proveedor (VORTEX S.L.)</p>
     <div class="field"><label>Email</label><input id="li-email" type="email" autocomplete="username"></div>
@@ -118,55 +219,129 @@
   </div>
 </div>
 
-<!-- APP -->
-<div id="appview" class="wrap hidden">
-  <div class="top">
+<!-- ============================ APP ============================ -->
+<div id="appview" class="hidden">
+  <header class="topbar">
     <div class="logo">V</div>
-    <div><h1>vortexPOS Cloud</h1><small>Panel de proveedor · todos los locales</small></div>
+    <div><h1>vortexPOS Cloud</h1><small>Centro de mando · VORTEX S.L.</small></div>
     <div class="spacer"></div>
-    <button class="btn btn-primary btn-sm" onclick="openCreate()">+ Nuevo local</button>
+    <button class="btn btn-ghost btn-sm" onclick="refreshCurrent()" title="Actualizar">↻</button>
     <button class="btn btn-ghost btn-sm" onclick="logout()">Salir</button>
-  </div>
+  </header>
 
-  <div class="kpis" id="kpis"></div>
+  <div class="shell">
+    <nav class="nav" id="nav"></nav>
 
-  <div class="section-head"><h2>Locales</h2><div class="line"></div>
-    <button class="btn btn-ghost btn-sm" onclick="loadTenants()">↻ Actualizar</button></div>
-  <div class="card" style="padding:6px">
-    <table class="tbl">
-      <thead><tr><th>Local</th><th>ID acceso</th><th>Plan</th><th>Estado</th>
-        <th class="tnum">Ventas</th><th>Última conexión</th><th></th></tr></thead>
-      <tbody id="tbody"></tbody>
-    </table>
+    <main class="main">
+
+      <!-- ---------------------- RESUMEN ---------------------- -->
+      <section class="sec" id="sec-resumen">
+        <div class="page-head">
+          <div><h2>Resumen</h2><p>Todo el negocio de un vistazo</p></div>
+        </div>
+        <div id="rs-body"><div class="empty">Cargando…</div></div>
+      </section>
+
+      <!-- ---------------------- LOCALES ---------------------- -->
+      <section class="sec" id="sec-locales">
+        <div class="page-head">
+          <div><h2>Locales</h2><p>Licencias, ventas, cierres Z y carta remota</p></div>
+          <div class="spacer"></div>
+          <button class="btn btn-primary btn-sm" onclick="openCreate()">+ Nuevo local</button>
+        </div>
+        <div class="kpis" id="lc-kpis"></div>
+        <div class="card" style="padding:6px">
+          <table class="tbl">
+            <thead><tr><th>Local</th><th>ID acceso</th><th>Plan</th><th>Estado</th>
+              <th>Ventas</th><th>Última conexión</th><th></th></tr></thead>
+            <tbody id="lc-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ---------------------- LEADS ---------------------- -->
+      <section class="sec" id="sec-leads">
+        <div class="page-head">
+          <div><h2>Leads</h2><p>Negocios a captar — guardados en el servidor, no en este navegador</p></div>
+          <div class="spacer"></div>
+          <button class="btn btn-primary btn-sm" onclick="openLead()">+ Nuevo lead</button>
+        </div>
+        <div class="kpis" id="ld-kpis"></div>
+        <div class="filters">
+          <select id="ld-line" onchange="loadLeads()">
+            <option value="">Todas las líneas</option>
+            <option value="pos">TPV</option>
+            <option value="agencia">Agencia</option>
+            <option value="ambas">Ambas</option>
+            <option value="descarte">Descarte</option>
+          </select>
+          <select id="ld-status" onchange="loadLeads()">
+            <option value="">Todos los estados</option>
+            <option value="nuevo">Nuevo</option>
+            <option value="contactado">Contactado</option>
+            <option value="interesado">Interesado</option>
+            <option value="piloto">Piloto</option>
+            <option value="cliente">Cliente</option>
+            <option value="descartado">Descartado</option>
+          </select>
+          <input id="ld-q" placeholder="Buscar por negocio, zona o contacto…" oninput="debouncedLeads()">
+        </div>
+        <div class="card" style="padding:6px">
+          <table class="tbl">
+            <thead><tr><th>Negocio</th><th>Zona</th><th>Contacto</th><th>Línea</th>
+              <th>Estado</th><th>Próxima acción</th><th></th></tr></thead>
+            <tbody id="ld-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ---------------------- FALLOS ---------------------- -->
+      <section class="sec" id="sec-fallos">
+        <div class="page-head">
+          <div><h2>Fallos</h2><p>Lo que las apps de los locales reportan solas</p></div>
+        </div>
+        <div class="filters">
+          <div class="chips" id="er-chips"></div>
+        </div>
+        <div id="er-body"><div class="empty">Cargando…</div></div>
+      </section>
+
+      <!-- ---------------------- AJUSTES ---------------------- -->
+      <section class="sec" id="sec-ajustes">
+        <div class="page-head">
+          <div><h2>Ajustes</h2><p>Estado del sistema y copia de seguridad</p></div>
+        </div>
+        <div id="aj-body"><div class="empty">Cargando…</div></div>
+      </section>
+
+    </main>
   </div>
 </div>
 
-<!-- MODAL crear -->
+<!-- MODAL crear local -->
 <div class="scrim" id="createScrim">
   <div class="modal">
     <h3>Nuevo local / licencia</h3>
     <div class="field"><label>Nombre del negocio</label><input id="nc-name" placeholder="Ej: Bar El Rincón"></div>
     <div class="field"><label>Plan</label>
-      <select id="nc-plan" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:11px 12px;font-weight:600">
-        <option>Básico</option><option selected>Pro</option><option>Premium</option></select></div>
+      <select id="nc-plan"><option>Básico</option><option selected>Pro</option><option>Premium</option></select></div>
     <div class="field"><label>PIN de administrador (4–8 dígitos)</label><input id="nc-pin" inputmode="numeric" placeholder="Ej: 4821"></div>
     <div id="nc-result" class="hidden"></div>
-    <div style="display:flex;gap:10px;margin-top:16px">
-      <button class="btn btn-ghost" style="flex:1" onclick="closeCreate()">Cerrar</button>
-      <button class="btn btn-primary" style="flex:1" id="nc-save" onclick="doCreate()">Crear licencia</button>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeCreate()">Cerrar</button>
+      <button class="btn btn-primary" id="nc-save" onclick="doCreate()">Crear licencia</button>
     </div>
   </div>
 </div>
 
-<!-- MODAL detalle -->
-<div class="scrim" id="detailScrim">
-  <div class="modal" id="detailBody"></div>
-</div>
+<!-- MODAL detalle de local -->
+<div class="scrim" id="detailScrim"><div class="modal" id="detailBody"></div></div>
 
 <!-- MODAL editor de carta remota -->
-<div class="scrim" id="menuScrim">
-  <div class="modal" style="width:min(560px,96vw)" id="menuBody"></div>
-</div>
+<div class="scrim" id="menuScrim"><div class="modal" style="width:min(560px,96vw)" id="menuBody"></div></div>
+
+<!-- MODAL lead -->
+<div class="scrim" id="leadScrim"><div class="modal" id="leadBody"></div></div>
 
 <div class="toast" id="toast"></div>
 
@@ -174,12 +349,55 @@
 const API = location.origin;
 let TOKEN = localStorage.getItem("vortex_cloud_token") || "";
 
-function toast(msg,type=""){const t=document.getElementById("toast");t.textContent=msg;t.className="toast on "+type;setTimeout(()=>t.className="toast",2400);}
-async function api(path, opts={}){
+/* Secciones del panel. El orden es el de la barra de navegación y el id se usa
+   tal cual en la URL (#/leads), para que recargar mantenga dónde estabas. */
+const SECTIONS = [
+  {id:"resumen", ico:"◧", label:"Resumen", load:()=>loadResumen()},
+  {id:"locales", ico:"▤", label:"Locales", load:()=>loadTenants()},
+  {id:"leads",   ico:"◎", label:"Leads",   load:()=>loadLeads()},
+  {id:"fallos",  ico:"⚠", label:"Fallos",  load:()=>loadErrors()},
+  {id:"ajustes", ico:"⚙", label:"Ajustes", load:()=>loadAjustes()},
+];
+let CURRENT = "resumen";
+let PENDING_ERRORS = 0;   // insignia roja de la navegación
+
+/* ---------------------------------------------------------------- básicos */
+function toast(msg,type=""){const t=document.getElementById("toast");t.textContent=msg;t.className="toast on "+type;setTimeout(()=>t.className="toast",2600);}
+function esc(s){return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function fmtMoney(n){ return "€"+(Math.round((n||0)*100)/100).toFixed(2).replace(".",","); }
+function fmtDate(s){ if(!s) return "—"; const d=new Date(s); return isNaN(d)?"—":d.toLocaleString("es-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}); }
+function fmtDay(s){ if(!s) return "—"; const d=new Date(s+"T00:00:00"); return isNaN(d)?s:d.toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit",year:"2-digit"}); }
+function today(){ return new Date().toISOString().slice(0,10); }
+
+// El servidor gratuito de Render se duerme a los 15 minutos y tarda entre 12 y
+// 50 segundos en despertar. Sin reintento, la primera petición del día falla y
+// el navegador solo dice "Failed to fetch", que no le explica nada a nadie.
+// Por eso: se reintenta, se avisa de que está despertando y los errores se
+// cuentan en español.
+async function api(path, opts={}, intento=0){
   const headers = Object.assign({"Content-Type":"application/json"}, opts.headers||{});
   if(TOKEN) headers["Authorization"]="Bearer "+TOKEN;
-  const res = await fetch(API+path, Object.assign({}, opts, {headers}));
+
+  let res;
+  try{
+    // 90 s de margen: más que el peor arranque en frío documentado.
+    const corte = new AbortController();
+    const reloj = setTimeout(()=>corte.abort(), 90000);
+    res = await fetch(API+path, Object.assign({}, opts, {headers, signal:corte.signal}));
+    clearTimeout(reloj);
+  }catch(e){
+    // Fallo de red: o el servidor está despertando, o no hay conexión.
+    if(intento < 2){
+      if(intento === 0) toast("El servidor estaba en reposo, despertándolo…","info");
+      await new Promise(r=>setTimeout(r, 3000));
+      return api(path, opts, intento+1);
+    }
+    throw new Error("No se pudo conectar con el servidor. Comprueba tu conexión y vuelve a intentarlo en un minuto.");
+  }
+
   if(res.status===401){ logout(); throw new Error("Sesión caducada"); }
+  if(res.status===429) throw new Error("Demasiados intentos. Espera un minuto y vuelve a probar.");
+  if(res.status>=500) throw new Error("El servidor ha tenido un problema (error "+res.status+"). Inténtalo de nuevo en unos segundos.");
   const data = await res.json().catch(()=>({}));
   if(!res.ok) throw new Error(data.detail || ("Error "+res.status));
   return data;
@@ -195,45 +413,103 @@ async function doLogin(){
     const password=document.getElementById("li-pass").value;
     const d = await api("/api/provider/login",{method:"POST",body:JSON.stringify({email,password})});
     TOKEN=d.token; localStorage.setItem("vortex_cloud_token",TOKEN);
-    show("app"); loadTenants();
+    show("app"); goto(location.hash.slice(2)||"resumen");
   }catch(e){ toast(e.message,"bad"); }
 }
 function logout(){ TOKEN=""; localStorage.removeItem("vortex_cloud_token"); show("login"); }
 
-function fmtMoney(n){ return "€"+(Math.round((n||0)*100)/100).toFixed(2).replace(".",","); }
-function fmtDate(s){ if(!s) return "—"; const d=new Date(s); return d.toLocaleString("es-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}); }
+/* ---------------------------------------------------------------- navegación */
+function renderNav(){
+  document.getElementById("nav").innerHTML = SECTIONS.map(s=>`
+    <button class="${s.id===CURRENT?"on":""}" onclick="goto('${s.id}')">
+      <span class="ico">${s.ico}</span><span>${s.label}</span>
+      ${s.id==="fallos"&&PENDING_ERRORS?`<span class="pill">${PENDING_ERRORS>99?"99+":PENDING_ERRORS}</span>`:""}
+    </button>`).join("");
+}
+function goto(id){
+  if(!SECTIONS.some(s=>s.id===id)) id="resumen";
+  CURRENT=id;
+  if(location.hash!=="#/"+id) location.hash="#/"+id;
+  SECTIONS.forEach(s=>document.getElementById("sec-"+s.id).classList.toggle("on", s.id===id));
+  renderNav();
+  window.scrollTo(0,0);
+  const sec=SECTIONS.find(s=>s.id===id); if(sec) sec.load();
+}
+function refreshCurrent(){ const s=SECTIONS.find(s=>s.id===CURRENT); if(s){ s.load(); toast("Actualizado","ok"); } }
+window.addEventListener("hashchange", ()=>{ const id=location.hash.slice(2); if(id!==CURRENT) goto(id); });
 
+/* ================================================================ RESUMEN */
+async function loadResumen(){
+  try{
+    const s = await api("/api/provider/stats");
+    PENDING_ERRORS = s.errors.unresolved; renderNav();
+    const bs = s.tenants.by_status||{};
+    const kpis = [
+      ["Locales", s.tenants.total, `${bs.Activo||0} activos · ${bs.Suspendido||0} suspendidos`, "var(--accent)"],
+      ["Activos hoy", s.tenants.active_today, "han sincronizado hoy", "var(--ok)"],
+      ["Ventas del mes", fmtMoney(s.sales.month_total), `${s.sales.month_count} tickets`, "var(--cloud)"],
+      ["Ventas acumuladas", fmtMoney(s.sales.total), `${s.sales.count} tickets · ${s.sales.closures} cierres Z`, "var(--ink)"],
+      ["Ticket medio", fmtMoney(s.sales.avg_ticket), "de todo el histórico", "var(--ink)"],
+      ["Leads", s.leads.total, `${s.leads.by_status.cliente||0} ya son clientes`, "var(--accent)"],
+      ["Acciones pendientes", s.leads.due, "leads con fecha vencida", s.leads.due?"var(--warn)":"var(--muted)"],
+      ["Fallos sin resolver", s.errors.unresolved, `${s.errors.last_24h} en 24 h`, s.errors.unresolved?"var(--bad)":"var(--ok)"],
+    ];
+    const due = s.leads.due_list.length ? s.leads.due_list.map(l=>`
+      <div class="prodline">
+        <span><span class="dot ${l.priority}"></span><b>${esc(l.business_name)}</b>
+          <span class="muted">· ${esc(l.next_action||"sin acción escrita")}</span></span>
+        <b class="due">${fmtDay(l.next_date)}</b>
+      </div>`).join("") : `<div class="muted">Nada pendiente. Todo al día.</div>`;
+    const errs = s.errors.recent.length ? s.errors.recent.map(e=>`
+      <div class="prodline">
+        <span><span class="etype">${esc(e.type)}</span> ${esc(e.message).slice(0,90)}
+          ${e.business_name?`<span class="muted">· ${esc(e.business_name)}</span>`:""}</span>
+        <b class="muted">${fmtDate(e.updated_at)}</b>
+      </div>`).join("") : `<div class="muted">Ningún fallo sin resolver. 👌</div>`;
+
+    document.getElementById("rs-body").innerHTML = `
+      <div class="kpis">${kpis.map(([k,v,sub,c])=>
+        `<div class="kpi"><div class="k">${k}</div><div class="v" style="color:${c}">${v}</div><div class="s">${sub}</div></div>`).join("")}</div>
+      <div class="section-head"><h3>Acciones comerciales pendientes</h3><div class="line"></div>
+        <button class="btn btn-ghost btn-sm" onclick="goto('leads')">Ver leads</button></div>
+      <div class="card">${due}</div>
+      <div class="section-head"><h3>Últimos fallos sin resolver</h3><div class="line"></div>
+        <button class="btn btn-ghost btn-sm" onclick="goto('fallos')">Ver fallos</button></div>
+      <div class="card">${errs}</div>`;
+  }catch(e){ toast(e.message,"bad"); }
+}
+
+/* ================================================================ LOCALES */
 async function loadTenants(){
   try{
     const d = await api("/api/provider/tenants");
     const ts = d.tenants;
     const total = ts.reduce((a,t)=>a+(t.sales_total||0),0);
     const kpi = [
-      ["Locales", ts.length, "var(--brand)"],
+      ["Locales", ts.length, "var(--accent)"],
       ["Activos", ts.filter(t=>t.status==="Activo").length, "var(--ok)"],
       ["Suspendidos", ts.filter(t=>t.status==="Suspendido").length, "var(--bad)"],
       ["Ventas acumuladas", fmtMoney(total), "var(--cloud)"],
     ];
-    document.getElementById("kpis").innerHTML = kpi.map(([k,v,c])=>
+    document.getElementById("lc-kpis").innerHTML = kpi.map(([k,v,c])=>
       `<div class="kpi"><div class="k">${k}</div><div class="v" style="color:${c}">${v}</div></div>`).join("");
-    document.getElementById("tbody").innerHTML = ts.length ? ts.map(t=>`
+    document.getElementById("lc-body").innerHTML = ts.length ? ts.map(t=>`
       <tr>
-        <td><b>${esc(t.business_name||"—")}</b></td>
-        <td class="tnum" style="color:var(--ok);font-weight:800">${t.access_id||"—"}</td>
-        <td><span class="plan">${t.plan}</span></td>
-        <td><span class="st ${t.status}">${t.status}</span></td>
-        <td class="tnum">${fmtMoney(t.sales_total)} <span class="muted">· ${t.sales_count}</span></td>
-        <td class="muted">${fmtDate(t.last_seen)}</td>
+        <td data-l="Local" class="full"><b>${esc(t.business_name||"—")}</b></td>
+        <td data-l="ID acceso" class="tnum" style="color:var(--ok);font-weight:800">${esc(t.access_id||"—")}</td>
+        <td data-l="Plan"><span class="plan">${esc(t.plan)}</span></td>
+        <td data-l="Estado"><span class="st ${esc(t.status)}">${esc(t.status)}</span></td>
+        <td data-l="Ventas" class="tnum">${fmtMoney(t.sales_total)} <span class="muted">· ${t.sales_count}</span></td>
+        <td data-l="Conexión" class="muted">${fmtDate(t.last_seen)}</td>
         <td><div class="row-actions">
           <button class="btn btn-ghost btn-sm" onclick='openDetail(${JSON.stringify(t.id)})'>Ver</button>
           ${t.status==="Activo"
             ? `<button class="btn btn-bad btn-sm" onclick='setStatus(${JSON.stringify(t.id)},"Suspendido")'>Suspender</button>`
             : `<button class="btn btn-ok btn-sm" onclick='setStatus(${JSON.stringify(t.id)},"Activo")'>Activar</button>`}
         </div></td>
-      </tr>`).join("") : `<tr><td colspan="7" class="muted" style="padding:26px;text-align:center">Aún no hay locales. Crea el primero con “+ Nuevo local”.</td></tr>`;
+      </tr>`).join("") : `<tr><td colspan="7" class="empty">Aún no hay locales. Crea el primero con “+ Nuevo local”.</td></tr>`;
   }catch(e){ toast(e.message,"bad"); }
 }
-function esc(s){return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");}
 
 async function setStatus(id,status){
   try{ await api("/api/provider/tenants/"+id,{method:"PATCH",body:JSON.stringify({status})});
@@ -241,11 +517,13 @@ async function setStatus(id,status){
   catch(e){ toast(e.message,"bad"); }
 }
 
-function openCreate(){ document.getElementById("nc-result").classList.add("hidden");
-  document.getElementById("nc-result").innerHTML="";
+function openCreate(){
+  const box=document.getElementById("nc-result");
+  box.className="hidden"; box.innerHTML="";
   document.getElementById("nc-save").classList.remove("hidden");
   document.getElementById("nc-name").value=""; document.getElementById("nc-pin").value="";
-  document.getElementById("createScrim").classList.add("on"); }
+  document.getElementById("createScrim").classList.add("on");
+}
 function closeCreate(){ document.getElementById("createScrim").classList.remove("on"); }
 async function doCreate(){
   try{
@@ -258,11 +536,11 @@ async function doCreate(){
     const box=document.getElementById("nc-result");
     box.className="lic"; box.innerHTML=`<div class="kk">Credenciales para el cliente</div>
       <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:4px">
-        <div><div class="kk" style="color:var(--ok)">ID de acceso</div><div class="vv">${d.access_id||"—"}</div></div>
-        <div><div class="kk" style="color:var(--ok)">PIN</div><div class="vv">${d.pin}</div></div>
+        <div><div class="kk" style="color:var(--ok)">ID de acceso</div><div class="vv">${esc(d.access_id||"—")}</div></div>
+        <div><div class="kk" style="color:var(--ok)">PIN</div><div class="vv">${esc(d.pin)}</div></div>
       </div>
       <div class="muted" style="margin-top:10px">Con <b>ID + PIN</b> el cliente activa su app — no necesita la licencia.</div>
-      <div class="muted" style="margin-top:6px;font-size:11px">Licencia interna: ${d.license_key} · Plan: ${d.plan}</div>`;
+      <div class="muted" style="margin-top:6px;font-size:11px">Licencia interna: ${esc(d.license_key)} · Plan: ${esc(d.plan)}</div>`;
     document.getElementById("nc-save").classList.add("hidden");
     loadTenants();
   }catch(e){ toast(e.message,"bad"); }
@@ -310,30 +588,30 @@ async function openDetail(id){
     const d = await api("/api/provider/tenants/"+id+"/summary");
     const zc = await api("/api/provider/tenants/"+id+"/closures");
     const t=d.tenant;
-    const methods=Object.entries(d.by_method).map(([m,v])=>`<div class="prodline"><span>${m}</span><b class="tnum">${fmtMoney(v)}</b></div>`).join("")||`<div class="muted">Sin cobros aún</div>`;
+    const methods=Object.entries(d.by_method).map(([m,v])=>`<div class="prodline"><span>${esc(m)}</span><b class="tnum">${fmtMoney(v)}</b></div>`).join("")||`<div class="muted">Sin cobros aún</div>`;
     const prods=d.top_products.map(p=>`<div class="prodline"><span>${p.qty}× ${esc(p.name)}</span><b class="tnum">${fmtMoney(p.amount)}</b></div>`).join("")||`<div class="muted">Sin ventas aún</div>`;
     const descuadreTotal = zc.closures.reduce((a,c)=>a+(typeof c.descuadre==="number"?c.descuadre:0),0);
     document.getElementById("detailBody").innerHTML=`
-      <h3>${esc(t.business_name)} <span class="st ${t.status}" style="margin-left:6px">${t.status}</span></h3>
-      <div class="muted tnum" style="margin-bottom:6px">ID de acceso: <b style="color:var(--ok);font-size:15px">${t.access_id||"—"}</b> · Plan ${t.plan}</div>
-      <div class="muted tnum" style="margin-bottom:14px;font-size:11px">Licencia: ${t.license_key}</div>
+      <h3>${esc(t.business_name)} <span class="st ${esc(t.status)}" style="margin-left:6px">${esc(t.status)}</span></h3>
+      <div class="muted tnum" style="margin-bottom:6px">ID de acceso: <b style="color:var(--ok);font-size:15px">${esc(t.access_id||"—")}</b> · Plan ${esc(t.plan)}</div>
+      <div class="muted tnum" style="margin-bottom:14px;font-size:11px">Licencia: ${esc(t.license_key)}</div>
       <div class="kpis">
         <div class="kpi"><div class="k">Ventas</div><div class="v" style="color:var(--cloud)">${fmtMoney(d.sales_total)}</div></div>
         <div class="kpi"><div class="k">Tickets</div><div class="v">${d.sales_count}</div></div>
         <div class="kpi"><div class="k">Cierres Z</div><div class="v">${d.closures}</div></div>
         ${zc.closures.length?`<div class="kpi"><div class="k">Descuadre acumulado</div><div class="v" style="font-size:20px;color:${Math.abs(descuadreTotal)<0.005?'var(--ok)':(descuadreTotal<0?'var(--bad)':'var(--warn)')}">${Math.abs(descuadreTotal)<0.005?'✓ 0,00':(descuadreTotal<0?'−':'+')+fmtMoney(Math.abs(descuadreTotal))}</div></div>`:""}
       </div>
-      <div class="section-head"><h2>Cierres Z · arqueo de caja</h2><div class="line"></div></div>
+      <div class="section-head"><h3>Cierres Z · arqueo de caja</h3><div class="line"></div></div>
       <div class="muted" style="margin-bottom:8px">Toca un cierre para ver su arqueo completo.</div>
       ${zClosuresHTML(zc.closures)}
-      <div class="section-head" style="margin-top:14px"><h2>Métodos de pago</h2><div class="line"></div></div>${methods}
-      <div class="section-head" style="margin-top:14px"><h2>Más vendidos</h2><div class="line"></div></div>${prods}
-      <div style="display:flex;gap:10px;margin-top:18px;flex-wrap:wrap">
-        <button class="btn btn-ghost" style="flex:1" onclick="closeDetail()">Cerrar</button>
-        <button class="btn btn-primary" style="flex:1" onclick='openMenuEditor(${JSON.stringify(t.id)})'>Editar carta</button>
+      <div class="section-head"><h3>Métodos de pago</h3><div class="line"></div></div>${methods}
+      <div class="section-head"><h3>Más vendidos</h3><div class="line"></div></div>${prods}
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeDetail()">Cerrar</button>
+        <button class="btn btn-primary" onclick='openMenuEditor(${JSON.stringify(t.id)})'>Editar carta</button>
         ${t.status==="Activo"
-          ? `<button class="btn btn-bad" style="flex:1" onclick='setStatus(${JSON.stringify(t.id)},"Suspendido");closeDetail()'>Suspender licencia</button>`
-          : `<button class="btn btn-ok" style="flex:1" onclick='setStatus(${JSON.stringify(t.id)},"Activo");closeDetail()'>Reactivar licencia</button>`}
+          ? `<button class="btn btn-bad" onclick='setStatus(${JSON.stringify(t.id)},"Suspendido");closeDetail()'>Suspender licencia</button>`
+          : `<button class="btn btn-ok" onclick='setStatus(${JSON.stringify(t.id)},"Activo");closeDetail()'>Reactivar licencia</button>`}
       </div>`;
     document.getElementById("detailScrim").classList.add("on");
   }catch(e){ toast(e.message,"bad"); }
@@ -387,9 +665,9 @@ function renderMenuEd(){
       <select class="me-in" id="nc-cat-station"><option value="cocina">🍳 Cocina</option><option value="barra">🍹 Barra</option></select>
       <button class="btn btn-ghost btn-sm" onclick="addMenuCat()">Crear</button>
     </div>
-    <div style="display:flex;gap:10px;margin-top:16px">
-      <button class="btn btn-ghost" style="flex:1" onclick="closeMenuEd()">Cancelar</button>
-      <button class="btn btn-primary" style="flex:1" onclick="saveMenuEd()">Guardar carta</button>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeMenuEd()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveMenuEd()">Guardar carta</button>
     </div>`;
 }
 function addMenuItem(ci){
@@ -426,14 +704,233 @@ async function saveMenuEd(){
 }
 function closeMenuEd(){ document.getElementById("menuScrim").classList.remove("on"); }
 
-[document.getElementById("createScrim"),document.getElementById("detailScrim"),document.getElementById("menuScrim")].forEach(s=>{
+/* ================================================================ LEADS */
+const LEAD_STATUSES = ["nuevo","contactado","interesado","piloto","cliente","descartado"];
+const LEAD_LINES = {pos:"TPV", agencia:"Agencia", ambas:"Ambas", descarte:"Descarte"};
+let LEADS = [];
+let leadsTimer = null;
+function debouncedLeads(){ clearTimeout(leadsTimer); leadsTimer=setTimeout(loadLeads, 300); }
+
+async function loadLeads(){
+  try{
+    const p = new URLSearchParams();
+    const line=document.getElementById("ld-line").value;
+    const status=document.getElementById("ld-status").value;
+    const q=document.getElementById("ld-q").value.trim();
+    if(line) p.set("line",line); if(status) p.set("status",status); if(q) p.set("q",q);
+    const d = await api("/api/provider/leads"+(p.toString()?"?"+p:""));
+    LEADS = d.leads;
+    const hoy = today();
+    const cuenta = s => LEADS.filter(l=>l.status===s).length;
+    const kpis = [
+      ["Leads", LEADS.length, "var(--accent)"],
+      ["Interesados", cuenta("interesado")+cuenta("piloto"), "var(--warn)"],
+      ["Clientes", cuenta("cliente"), "var(--ok)"],
+      ["Requieren acción", LEADS.filter(l=>esPendiente(l,hoy)).length, "var(--bad)"],
+    ];
+    document.getElementById("ld-kpis").innerHTML = kpis.map(([k,v,c])=>
+      `<div class="kpi"><div class="k">${k}</div><div class="v" style="color:${c}">${v}</div></div>`).join("");
+
+    document.getElementById("ld-body").innerHTML = LEADS.length ? LEADS.map(l=>{
+      const pend = esPendiente(l,hoy);
+      const contacto = [
+        l.phone?`<a href="tel:${esc(l.phone.replace(/\s/g,""))}">${esc(l.phone)}</a>`:"",
+        l.email?`<a href="mailto:${esc(l.email)}">${esc(l.email)}</a>`:"",
+      ].filter(Boolean).join("<br>") || `<span class="muted">Sin contacto</span>`;
+      return `<tr>
+        <td data-l="Negocio" class="full">
+          <b><span class="dot ${esc(l.priority)}"></span>${esc(l.business_name)}</b>
+          ${l.business_type?`<div class="lead-sub">${esc(l.business_type)}</div>`:""}</td>
+        <td data-l="Zona" class="muted">${esc(l.zone||"—")}</td>
+        <td data-l="Contacto" class="contact">${contacto}</td>
+        <td data-l="Línea"><span class="plan">${esc(LEAD_LINES[l.line]||l.line)}</span></td>
+        <td data-l="Estado">
+          <select class="inline-sel" onchange='setLeadStatus(${JSON.stringify(l.id)}, this.value)'>
+            ${LEAD_STATUSES.map(s=>`<option value="${s}" ${s===l.status?"selected":""}>${s[0].toUpperCase()+s.slice(1)}</option>`).join("")}
+          </select></td>
+        <td data-l="Próxima acción" class="full">
+          ${l.next_action?esc(l.next_action):`<span class="muted">—</span>`}
+          ${l.next_date?`<div class="lead-sub ${pend?"due":""}">${pend?"⏰ ":""}${fmtDay(l.next_date)}</div>`:""}</td>
+        <td><div class="row-actions">
+          <button class="btn btn-ghost btn-sm" onclick='openLead(${JSON.stringify(l.id)})'>Editar</button>
+          <button class="btn btn-bad btn-sm" onclick='delLead(${JSON.stringify(l.id)})'>✕</button>
+        </div></td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="7" class="empty">No hay leads con este filtro.</td></tr>`;
+  }catch(e){ toast(e.message,"bad"); }
+}
+function esPendiente(l,hoy){
+  return !!l.next_date && l.next_date<=hoy && l.status!=="cliente" && l.status!=="descartado";
+}
+
+async function setLeadStatus(id,status){
+  try{ await api("/api/provider/leads/"+id,{method:"PATCH",body:JSON.stringify({status})});
+    toast("Lead actualizado","ok"); loadLeads(); }
+  catch(e){ toast(e.message,"bad"); loadLeads(); }
+}
+
+function openLead(id){
+  const l = LEADS.find(x=>x.id===id) || {line:"pos",status:"nuevo",priority:"media"};
+  const sel=(v,opts)=>opts.map(([k,t])=>`<option value="${k}" ${k===v?"selected":""}>${t}</option>`).join("");
+  document.getElementById("leadBody").innerHTML=`
+    <h3>${id?"Editar lead":"Nuevo lead"}</h3>
+    <div class="field"><label>Negocio *</label><input id="lf-name" value="${esc(l.business_name||"")}" placeholder="Ej: Chiringuito La Ola"></div>
+    <div class="field-row">
+      <div class="field"><label>Tipo</label><input id="lf-type" value="${esc(l.business_type||"")}" placeholder="Bar de tapas"></div>
+      <div class="field"><label>Zona</label><input id="lf-zone" value="${esc(l.zone||"")}" placeholder="Torre del Mar"></div>
+    </div>
+    <div class="field"><label>Persona de contacto</label><input id="lf-contact" value="${esc(l.contact||"")}"></div>
+    <div class="field-row">
+      <div class="field"><label>Teléfono</label><input id="lf-phone" value="${esc(l.phone||"")}" inputmode="tel"></div>
+      <div class="field"><label>Email</label><input id="lf-email" value="${esc(l.email||"")}" inputmode="email"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Línea</label><select id="lf-line">${sel(l.line,Object.entries(LEAD_LINES))}</select></div>
+      <div class="field"><label>Estado</label><select id="lf-status">${sel(l.status,LEAD_STATUSES.map(s=>[s,s[0].toUpperCase()+s.slice(1)]))}</select></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Prioridad</label><select id="lf-priority">${sel(l.priority,[["alta","Alta"],["media","Media"],["baja","Baja"]])}</select></div>
+      <div class="field"><label>Origen</label><input id="lf-source" value="${esc(l.source||"")}" placeholder="Visita, web, referido…"></div>
+    </div>
+    <div class="field"><label>Próxima acción</label><input id="lf-action" value="${esc(l.next_action||"")}" placeholder="Llamar y proponer demo"></div>
+    <div class="field"><label>¿Cuándo?</label><input id="lf-date" type="date" value="${esc(l.next_date||"")}"></div>
+    <div class="field"><label>Notas</label><textarea id="lf-notes" placeholder="Todo lo que convenga recordar">${esc(l.notes||"")}</textarea></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeLead()">Cancelar</button>
+      <button class="btn btn-primary" onclick='saveLead(${id?JSON.stringify(id):"null"})'>Guardar</button>
+    </div>`;
+  document.getElementById("leadScrim").classList.add("on");
+}
+function closeLead(){ document.getElementById("leadScrim").classList.remove("on"); }
+
+async function saveLead(id){
+  const v = x => document.getElementById(x).value.trim();
+  const body = {
+    business_name:v("lf-name"), business_type:v("lf-type"), zone:v("lf-zone"),
+    contact:v("lf-contact"), phone:v("lf-phone"), email:v("lf-email"),
+    line:v("lf-line"), status:v("lf-status"), priority:v("lf-priority"),
+    source:v("lf-source"), next_action:v("lf-action"), next_date:v("lf-date"),
+    notes:document.getElementById("lf-notes").value.trim(),
+  };
+  if(!body.business_name) return toast("El nombre del negocio es obligatorio","bad");
+  try{
+    if(id) await api("/api/provider/leads/"+id,{method:"PATCH",body:JSON.stringify(body)});
+    else    await api("/api/provider/leads",{method:"POST",body:JSON.stringify(body)});
+    closeLead(); toast("Lead guardado","ok"); loadLeads();
+  }catch(e){ toast(e.message,"bad"); }
+}
+async function delLead(id){
+  const l = LEADS.find(x=>x.id===id);
+  if(!confirm(`¿Borrar el lead "${l?l.business_name:id}"? No se puede deshacer.`)) return;
+  try{ await api("/api/provider/leads/"+id,{method:"DELETE"}); toast("Lead borrado","ok"); loadLeads(); }
+  catch(e){ toast(e.message,"bad"); }
+}
+
+/* ================================================================ FALLOS */
+let ERR_FILTER = "false";   // "false" = sin resolver | "true" = resueltos | "" = todos
+async function loadErrors(){
+  try{
+    const q = ERR_FILTER==="" ? "" : "?resolved="+ERR_FILTER;
+    const d = await api("/api/provider/errors"+q);
+    const chips=[["false","Sin resolver"],["true","Resueltos"],["","Todos"]];
+    document.getElementById("er-chips").innerHTML = chips.map(([v,t])=>
+      `<button class="chip ${ERR_FILTER===v?"on":""}" onclick="ERR_FILTER='${v}';loadErrors()">${t}</button>`).join("");
+    if(ERR_FILTER==="false"){ PENDING_ERRORS=d.errors.length; renderNav(); }
+    document.getElementById("er-body").innerHTML = d.errors.length ? d.errors.map(e=>`
+      <div class="erow ${e.resolved?"done":""}">
+        <div class="ehead">
+          <span class="etype">${esc(e.type)}</span>
+          ${e.hits>1?`<span class="ehits">×${e.hits} veces</span>`:""}
+          ${e.business_name?`<span class="muted">${esc(e.business_name)}</span>`
+                           :`<span class="muted">${e.tenant_id?esc(e.tenant_id):"local no identificado"}</span>`}
+          <div class="spacer"></div>
+          <button class="btn ${e.resolved?"btn-ghost":"btn-ok"} btn-sm"
+            onclick='resolveError(${JSON.stringify(e.id)},${e.resolved?"false":"true"})'>
+            ${e.resolved?"Reabrir":"Marcar resuelto"}</button>
+          <button class="btn btn-bad btn-sm" onclick='deleteError(${JSON.stringify(e.id)})'>✕</button>
+        </div>
+        <div class="emsg">${esc(e.message)}</div>
+        <div class="emeta">${fmtDate(e.created_at)}${e.hits>1?" · última vez "+fmtDate(e.updated_at):""}
+          ${e.app_version?" · app "+esc(e.app_version):""}</div>
+        ${Object.keys(e.context||{}).length?`<details class="ectx"><summary>Detalle técnico</summary>
+          <pre>${esc(JSON.stringify(e.context,null,2))}</pre></details>`:""}
+      </div>`).join("")
+      : `<div class="card empty">${ERR_FILTER==="false"?"Ningún fallo sin resolver. Todo en orden.":"Nada por aquí."}</div>`;
+  }catch(e){ toast(e.message,"bad"); }
+}
+async function resolveError(id,resolved){
+  try{ await api("/api/provider/errors/"+id,{method:"PATCH",body:JSON.stringify({resolved})});
+    toast(resolved?"Fallo marcado como resuelto":"Fallo reabierto","ok"); loadErrors(); }
+  catch(e){ toast(e.message,"bad"); }
+}
+async function deleteError(id){
+  if(!confirm("¿Borrar este fallo del registro?")) return;
+  try{ await api("/api/provider/errors/"+id,{method:"DELETE"}); loadErrors(); }
+  catch(e){ toast(e.message,"bad"); }
+}
+
+/* ================================================================ AJUSTES */
+async function loadAjustes(){
+  try{
+    const s = await api("/api/provider/stats");
+    const salud = await fetch(API+"/health").then(r=>r.json()).catch(()=>({ok:false}));
+    document.getElementById("aj-body").innerHTML=`
+      <div class="section-head" style="margin-top:0"><h3>Estado del sistema</h3><div class="line"></div></div>
+      <div class="card">
+        <div class="prodline"><span>Servidor</span><b style="color:${salud.ok?"var(--ok)":"var(--bad)"}">${salud.ok?"en marcha":"sin respuesta"}</b></div>
+        <div class="prodline"><span>Versión</span><b>${esc(s.system.version)}</b></div>
+        <div class="prodline"><span>Base de datos</span><b>${esc(s.system.database)}</b></div>
+        <div class="prodline"><span>Hora del servidor</span><b>${fmtDate(s.system.server_time)}</b></div>
+        <div class="prodline"><span>Locales / leads / fallos</span><b>${s.tenants.total} · ${s.leads.total} · ${s.errors.total}</b></div>
+      </div>
+
+      <div class="section-head"><h3>Copia de seguridad</h3><div class="line"></div></div>
+      <div class="card">
+        <div class="muted" style="margin-bottom:12px">Descarga TODO en un fichero: locales, cartas, histórico de
+          ventas y leads. Guárdalo como si fuera una contraseña (lleva los hash de los PIN).</div>
+        <button class="btn btn-primary" onclick="downloadBackup()">Descargar copia completa</button>
+      </div>
+
+      <div class="section-head"><h3>Accesos</h3><div class="line"></div></div>
+      <div class="card">
+        <div class="prodline"><span>App del cliente (PWA)</span><a href="/app/" target="_blank">/app/</a></div>
+        <div class="prodline"><span>Documentación de la API</span><a href="/docs" target="_blank">/docs</a></div>
+        <div class="prodline"><span>Salud del servicio</span><a href="/health" target="_blank">/health</a></div>
+      </div>`;
+  }catch(e){ toast(e.message,"bad"); }
+}
+async function downloadBackup(){
+  try{
+    toast("Generando copia…");
+    const res = await fetch(API+"/api/provider/backup",{headers:{Authorization:"Bearer "+TOKEN}});
+    if(!res.ok) throw new Error("No se pudo generar la copia");
+    const blob = await res.blob();
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="vortexpos-copia-"+today()+".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    toast("Copia descargada","ok");
+  }catch(e){ toast(e.message,"bad"); }
+}
+
+/* ---------------------------------------------------------------- arranque */
+["createScrim","detailScrim","menuScrim","leadScrim"].forEach(id=>{
+  const s=document.getElementById(id);
   s.onclick=e=>{ if(e.target===s) s.classList.remove("on"); };
+});
+document.addEventListener("keydown",e=>{
+  if(e.key!=="Escape") return;
+  document.querySelectorAll(".scrim.on").forEach(s=>s.classList.remove("on"));
 });
 document.getElementById("li-pass").addEventListener("keydown",e=>{ if(e.key==="Enter") doLogin(); });
 
-// arranque
 (async()=>{
-  if(TOKEN){ try{ await api("/api/provider/tenants"); show("app"); loadTenants(); return; }catch(e){} }
+  renderNav();
+  if(TOKEN){
+    try{ await api("/api/provider/stats"); show("app"); goto(location.hash.slice(2)||"resumen"); return; }
+    catch(e){}
+  }
   show("login");
 })();
 </script>
