@@ -201,7 +201,15 @@ def health():
 
 @app.get("/", response_class=HTMLResponse)
 def panel():
-    return PANEL_HTML
+    # Sin estas cabeceras el navegador guarda el panel y sigue mostrando la
+    # versión vieja después de un despliegue: el usuario ve fallos ya corregidos
+    # y no hay forma de saber por qué. El panel pesa poco, así que se pide
+    # siempre fresco.
+    return HTMLResponse(PANEL_HTML, headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    })
 
 
 # ---------------------------------------------------------------- PWA (/app/)
