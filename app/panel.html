@@ -114,6 +114,47 @@
   .lead-sub{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:2px}
   .contact a{text-decoration:none;font-weight:700;font-size:13px}
 
+  /* ---------- agenda ---------- */
+  .agenda-wrap{display:grid;gap:16px;grid-template-columns:1fr;align-items:start}
+  @media(min-width:860px){.agenda-wrap{grid-template-columns:minmax(300px,380px) 1fr}}
+  .cal-card,.day-card{padding:16px}
+  .cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .cal-head b{font-size:15px}
+  .cal-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px}
+  .cal-dow span{text-align:center;font-size:11px;font-weight:700;color:var(--muted)}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .cal-cell{position:relative;aspect-ratio:1;border:1px solid transparent;border-radius:10px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    cursor:pointer;background:var(--panel2);transition:.12s}
+  .cal-cell.out{background:transparent;cursor:default}
+  .cal-cell:not(.out):hover{border-color:var(--accent)}
+  .cal-cell .cd{font-size:13px;font-weight:600;color:var(--soft)}
+  .cal-cell.today{background:#12234a}
+  .cal-cell.today .cd{color:var(--cloud);font-weight:800}
+  .cal-cell.sel{border-color:var(--accent);background:#182a4d;box-shadow:0 0 0 1px var(--accent) inset}
+  .cal-cell .cdot{font-size:10px;font-weight:800;line-height:1;min-width:16px;height:16px;padding:0 4px;
+    border-radius:9px;display:inline-flex;align-items:center;justify-content:center;
+    background:var(--brand);color:#fff}
+  .cal-cell .cdot.done{background:var(--ok);color:#052018}
+  .day-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;
+    padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .day-head b{font-size:16px}
+  .task{display:flex;align-items:flex-start;gap:11px;padding:12px 4px;border-bottom:1px solid var(--line)}
+  .task:last-child{border-bottom:0}
+  .task-main{flex:1;min-width:0}
+  .task-title{font-weight:700;font-size:14px;line-height:1.35}
+  .task-detail{font-size:12.5px;color:var(--soft);margin-top:2px}
+  .task.done .task-title{text-decoration:line-through;color:var(--muted)}
+  .chk{flex:none;width:24px;height:24px;border-radius:7px;border:1.6px solid var(--line);
+    background:var(--panel2);color:#fff;cursor:pointer;font-size:13px;font-weight:800;
+    display:flex;align-items:center;justify-content:center;margin-top:1px;transition:.12s}
+  .chk:hover{border-color:var(--ok)}
+  .chk.on{background:var(--ok);border-color:var(--ok);color:#052018}
+  .who{display:inline-block;margin-top:6px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:100px}
+  .who.w-amb{background:#1a2740;color:var(--accent)}
+  .who.w-soc{background:var(--warnb);color:var(--warn)}
+  .who.w-fun{background:var(--okb);color:var(--ok)}
+
   /* ---------- fallos ---------- */
   .erow{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:13px 14px;margin-bottom:9px}
   .erow.done{opacity:.55}
@@ -295,6 +336,30 @@
         </div>
       </section>
 
+      <!-- ---------------------- AGENDA ---------------------- -->
+      <section class="sec" id="sec-agenda">
+        <div class="page-head">
+          <div><h2>Agenda</h2><p>Las tareas del equipo — cada mañana le llega un correo a tu socio con las de hoy</p></div>
+          <div class="spacer"></div>
+          <button class="btn btn-primary btn-sm" onclick="openTask(null)">+ Nueva tarea</button>
+        </div>
+        <div class="agenda-wrap">
+          <div class="card cal-card">
+            <div class="cal-head">
+              <button class="btn btn-ghost btn-sm" onclick="calMove(-1)">‹</button>
+              <b id="cal-title">—</b>
+              <button class="btn btn-ghost btn-sm" onclick="calMove(1)">›</button>
+            </div>
+            <div class="cal-dow"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+            <div class="cal-grid" id="cal-grid"></div>
+          </div>
+          <div class="card day-card">
+            <div class="day-head"><b id="day-title">Hoy</b><span class="muted" id="day-count"></span></div>
+            <div id="day-body"><div class="empty">Cargando…</div></div>
+          </div>
+        </div>
+      </section>
+
       <!-- ---------------------- FALLOS ---------------------- -->
       <section class="sec" id="sec-fallos">
         <div class="page-head">
@@ -340,6 +405,9 @@
 <!-- MODAL editor de carta remota -->
 <div class="scrim" id="menuScrim"><div class="modal" style="width:min(560px,96vw)" id="menuBody"></div></div>
 
+<!-- MODAL tarea -->
+<div class="scrim" id="taskScrim"><div class="modal" id="taskBody"></div></div>
+
 <!-- MODAL lead -->
 <div class="scrim" id="leadScrim"><div class="modal" id="leadBody"></div></div>
 
@@ -353,6 +421,7 @@ let TOKEN = localStorage.getItem("vortex_cloud_token") || "";
    tal cual en la URL (#/leads), para que recargar mantenga dónde estabas. */
 const SECTIONS = [
   {id:"resumen", ico:"◧", label:"Resumen", load:()=>loadResumen()},
+  {id:"agenda",  ico:"▦", label:"Agenda",  load:()=>loadAgenda()},
   {id:"locales", ico:"▤", label:"Locales", load:()=>loadTenants()},
   {id:"leads",   ico:"◎", label:"Leads",   load:()=>loadLeads()},
   {id:"fallos",  ico:"⚠", label:"Fallos",  load:()=>loadErrors()},
@@ -826,6 +895,118 @@ async function delLead(id){
   catch(e){ toast(e.message,"bad"); }
 }
 
+/* ================================================================ AGENDA */
+const WHO_LABEL = {ambos:"Los dos", socio:"Tu socio", fundador:"Tú"};
+const WHO_CLS = {ambos:"w-amb", socio:"w-soc", fundador:"w-fun"};
+const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+let TASKS = [];                         // tareas del mes visible
+let calRef = new Date();                // mes que se está viendo
+let daySel = isoLocal(new Date());      // día seleccionado (por defecto hoy)
+
+function isoLocal(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function todayIso(){ return isoLocal(new Date()); }
+
+async function loadAgenda(){
+  const y=calRef.getFullYear(), m=calRef.getMonth();
+  const desde=isoLocal(new Date(y,m,1)), hasta=isoLocal(new Date(y,m+1,0));
+  try{
+    const d = await api(`/api/provider/tasks?desde=${desde}&hasta=${hasta}`);
+    TASKS = d.tasks;
+    // que el día seleccionado siga dentro del mes visible
+    if(daySel < desde || daySel > hasta) daySel = (todayIso()>=desde && todayIso()<=hasta) ? todayIso() : desde;
+    renderCal(); renderDay();
+  }catch(e){ toast(e.message,"bad"); }
+}
+function calMove(delta){ calRef = new Date(calRef.getFullYear(), calRef.getMonth()+delta, 1); loadAgenda(); }
+
+function renderCal(){
+  const y=calRef.getFullYear(), m=calRef.getMonth();
+  document.getElementById("cal-title").textContent = MESES[m][0].toUpperCase()+MESES[m].slice(1)+" "+y;
+  const primero=new Date(y,m,1), offset=(primero.getDay()+6)%7;   // lunes=0
+  const dias=new Date(y,m+1,0).getDate(), hoy=todayIso();
+  const cont = {};   // fecha -> {n, pend}
+  TASKS.forEach(t=>{ if(!t.date) return; (cont[t.date]=cont[t.date]||{n:0,pend:0}).n++; if(!t.done) cont[t.date].pend++; });
+  let cells="";
+  for(let i=0;i<offset;i++) cells+=`<div class="cal-cell out"></div>`;
+  for(let d=1; d<=dias; d++){
+    const iso=isoLocal(new Date(y,m,d)), c=cont[iso]||{n:0,pend:0};
+    const cls=["cal-cell"]; if(iso===hoy) cls.push("today"); if(iso===daySel) cls.push("sel"); if(c.pend) cls.push("has");
+    cells+=`<div class="${cls.join(" ")}" onclick="pickDay('${iso}')">
+      <span class="cd">${d}</span>
+      ${c.n?`<span class="cdot ${c.pend?"":"done"}">${c.n}</span>`:""}</div>`;
+  }
+  document.getElementById("cal-grid").innerHTML=cells;
+}
+function pickDay(iso){ daySel=iso; renderCal(); renderDay(); }
+
+function renderDay(){
+  const hoy=todayIso();
+  const etiqueta = daySel===hoy ? "Hoy" : fmtDay(daySel);
+  const list = TASKS.filter(t=>t.date===daySel);
+  const pend = list.filter(t=>!t.done).length;
+  document.getElementById("day-title").innerHTML = `${etiqueta} <span class="muted" style="font-weight:600">· ${fmtDay(daySel)}</span>`;
+  document.getElementById("day-count").textContent = list.length ? `${pend} pendiente${pend!==1?"s":""} de ${list.length}` : "";
+  document.getElementById("day-body").innerHTML = list.length ? list.map(t=>`
+    <div class="task ${t.done?"done":""}">
+      <button class="chk ${t.done?"on":""}" onclick='toggleTask(${JSON.stringify(t.id)}, ${!t.done})' title="Marcar hecha">${t.done?"✓":""}</button>
+      <div class="task-main">
+        <div class="task-title">${esc(t.title)}</div>
+        ${t.detail?`<div class="task-detail">${esc(t.detail)}</div>`:""}
+        <span class="who ${WHO_CLS[t.who]||""}">${WHO_LABEL[t.who]||t.who}</span>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn-ghost btn-sm" onclick='openTask(${JSON.stringify(t.id)})'>Editar</button>
+        <button class="btn btn-bad btn-sm" onclick='delTask(${JSON.stringify(t.id)})'>✕</button>
+      </div>
+    </div>`).join("") : `<div class="empty">Nada para este día. <a href="#" onclick="openTask(null);return false">Añade una tarea</a>.</div>`;
+}
+
+async function toggleTask(id,done){
+  try{ await api("/api/provider/tasks/"+id,{method:"PATCH",body:JSON.stringify({done})}); loadAgenda(); }
+  catch(e){ toast(e.message,"bad"); }
+}
+
+function openTask(id){
+  const t = TASKS.find(x=>x.id===id) || {who:"ambos", date:daySel};
+  const sel=(v,opts)=>opts.map(([k,tx])=>`<option value="${k}" ${k===v?"selected":""}>${tx}</option>`).join("");
+  document.getElementById("taskBody").innerHTML=`
+    <h3>${id?"Editar tarea":"Nueva tarea"}</h3>
+    <div class="field"><label>Tarea *</label><input id="tf-title" value="${esc(t.title||"")}" placeholder="Ej: Llamar al bar La Marina"></div>
+    <div class="field"><label>Detalle</label><textarea id="tf-detail" placeholder="Lo que convenga recordar">${esc(t.detail||"")}</textarea></div>
+    <div class="field-row">
+      <div class="field"><label>Día</label><input id="tf-date" type="date" value="${esc(t.date||"")}"></div>
+      <div class="field"><label>¿De quién?</label><select id="tf-who">${sel(t.who,[["ambos","Los dos"],["socio","Tu socio"],["fundador","Tú"]])}</select></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeTask()">Cancelar</button>
+      <button class="btn btn-primary" onclick='saveTask(${id?JSON.stringify(id):"null"})'>Guardar</button>
+    </div>`;
+  document.getElementById("taskScrim").classList.add("on");
+  setTimeout(()=>{ const el=document.getElementById("tf-title"); if(el) el.focus(); },50);
+}
+function closeTask(){ document.getElementById("taskScrim").classList.remove("on"); }
+
+async function saveTask(id){
+  const body = {
+    title: document.getElementById("tf-title").value.trim(),
+    detail: document.getElementById("tf-detail").value.trim(),
+    date: document.getElementById("tf-date").value,
+    who: document.getElementById("tf-who").value,
+  };
+  if(!body.title) return toast("La tarea necesita un título","bad");
+  try{
+    if(id) await api("/api/provider/tasks/"+id,{method:"PATCH",body:JSON.stringify(body)});
+    else{ await api("/api/provider/tasks",{method:"POST",body:JSON.stringify(body)}); if(body.date) daySel=body.date; }
+    closeTask(); toast("Tarea guardada","ok"); loadAgenda();
+  }catch(e){ toast(e.message,"bad"); }
+}
+async function delTask(id){
+  const t = TASKS.find(x=>x.id===id);
+  if(!confirm(`¿Borrar "${t?t.title:id}"? No se puede deshacer.`)) return;
+  try{ await api("/api/provider/tasks/"+id,{method:"DELETE"}); toast("Tarea borrada","ok"); loadAgenda(); }
+  catch(e){ toast(e.message,"bad"); }
+}
+
 /* ================================================================ FALLOS */
 let ERR_FILTER = "false";   // "false" = sin resolver | "true" = resueltos | "" = todos
 async function loadErrors(){
@@ -915,7 +1096,7 @@ async function downloadBackup(){
 }
 
 /* ---------------------------------------------------------------- arranque */
-["createScrim","detailScrim","menuScrim","leadScrim"].forEach(id=>{
+["createScrim","detailScrim","menuScrim","leadScrim","taskScrim"].forEach(id=>{
   const s=document.getElementById(id);
   s.onclick=e=>{ if(e.target===s) s.classList.remove("on"); };
 });

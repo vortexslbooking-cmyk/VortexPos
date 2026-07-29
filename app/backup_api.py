@@ -14,7 +14,7 @@ from sqlalchemy import select, insert, update, and_
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from .db import engine, tenants, documents, records, leads, new_access_id, sale_amount
+from .db import engine, tenants, documents, records, leads, tasks, new_access_id, sale_amount
 
 router = APIRouter()
 
@@ -53,6 +53,10 @@ LEAD_FIELDS = ("id", "business_name", "contact", "phone", "email", "zone",
                "business_type", "line", "status", "priority", "source", "notes",
                "next_action", "next_date")
 
+# Campos de texto de una tarea de agenda (el booleano 'done' se trata aparte).
+# También opcionales al restaurar: una copia anterior sin tareas se restaura igual.
+TASK_FIELDS = ("id", "title", "detail", "date", "who")
+
 
 @router.get("/api/provider/backup")
 def provider_backup(_=Depends(_provider)):
@@ -70,6 +74,7 @@ def provider_backup(_=Depends(_provider)):
         d_rows = cx.execute(select(documents)).all()
         r_rows = cx.execute(select(records).order_by(records.c.created_at)).all()
         l_rows = cx.execute(select(leads).order_by(leads.c.created_at)).all()
+        k_rows = cx.execute(select(tasks).order_by(tasks.c.created_at)).all()
 
     out_tenants = [{
         "id": r.id, "license_key": r.license_key,
@@ -89,6 +94,9 @@ def provider_backup(_=Depends(_provider)):
     out_leads = [dict({f: getattr(r, f) for f in LEAD_FIELDS},
                       created_at=_iso(r.created_at), updated_at=_iso(r.updated_at))
                  for r in l_rows]
+    out_tasks = [dict({f: getattr(r, f) for f in TASK_FIELDS}, done=bool(r.done),
+                      created_at=_iso(r.created_at), updated_at=_iso(r.updated_at))
+                 for r in k_rows]
 
     # Los leads SÍ entran en la copia: son el trabajo comercial del fundador y
     # perderlos sería tan grave como perder las ventas. Los fallos (tabla errors)
@@ -97,9 +105,10 @@ def provider_backup(_=Depends(_provider)):
         "vortexpos_backup": BACKUP_FORMAT,
         "created_at": _iso(_now()),
         "counts": {"tenants": len(out_tenants), "documents": len(out_docs),
-                   "records": len(out_recs), "leads": len(out_leads)},
+                   "records": len(out_recs), "leads": len(out_leads),
+                   "tasks": len(out_tasks)},
         "tenants": out_tenants, "documents": out_docs, "records": out_recs,
-        "leads": out_leads,
+        "leads": out_leads, "tasks": out_tasks,
     }
 
 
@@ -109,6 +118,7 @@ class RestoreIn(BaseModel):
     documents: List[Dict[str, Any]] = []
     records: List[Dict[str, Any]] = []
     leads: List[Dict[str, Any]] = []      # ausente en copias anteriores: se ignora
+    tasks: List[Dict[str, Any]] = []      # ídem: las copias antiguas no la traen
 
 
 @router.post("/api/provider/restore")
@@ -123,7 +133,7 @@ def provider_restore(body: RestoreIn, _=Depends(_provider)):
         raise HTTPException(400, "Formato de copia desconocido — usa un fichero "
                                  f"generado por esta versión (formato {BACKUP_FORMAT})")
     is_sqlite = engine.dialect.name == "sqlite"
-    added = {"tenants": 0, "documents": 0, "records": 0, "leads": 0}
+    added = {"tenants": 0, "documents": 0, "records": 0, "leads": 0, "tasks": 0}
     with engine.begin() as cx:
         for t in body.tenants:
             tid = t.get("id")
@@ -207,6 +217,26 @@ def provider_restore(body: RestoreIn, _=Depends(_provider)):
             else:
                 cx.execute(insert(leads).values(**values))
                 added["leads"] += 1
+
+        for k in body.tasks:
+            kid = k.get("id")
+            if not kid:
+                continue
+            values = {f: str(k.get(f) or "") for f in TASK_FIELDS if f != "id"}
+            values.update(
+                id=kid,
+                who=values["who"] or "ambos",
+                done=bool(k.get("done")),
+                created_at=_parse_iso(k.get("created_at")),
+                updated_at=_parse_iso(k.get("updated_at")),
+            )
+            exists = cx.execute(select(tasks.c.id).where(tasks.c.id == kid)).first()
+            if exists:
+                cx.execute(update(tasks).where(tasks.c.id == kid)
+                           .values(**{c: v for c, v in values.items() if c != "id"}))
+            else:
+                cx.execute(insert(tasks).values(**values))
+                added["tasks"] += 1
 
     return {"ok": True, "added": added}
 

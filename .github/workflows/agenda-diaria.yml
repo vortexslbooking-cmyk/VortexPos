@@ -1,0 +1,114 @@
+# Correo de agenda cada mañana.
+#
+# Cada día a primera hora entra en el panel, pide las tareas de HOY (más las
+# atrasadas y un adelanto de mañana) y se las envía por correo a tu socio, para
+# que le lleguen aunque no abra el centro de mando. El texto lo redacta el propio
+# servidor (endpoint /api/provider/agenda-correo), aquí solo se envía.
+#
+# ── Secretos que añades tú una vez en GitHub ─────────────────────────────────
+# Settings → Secrets and variables → Actions → New repository secret:
+#   PROVIDER_EMAIL      el email del panel (el mismo que ya usas para el backup)
+#   PROVIDER_PASSWORD   la contraseña del panel (la misma que ya usas para el backup)
+#   MAIL_USERNAME       el Gmail DESDE el que se envía (p. ej. vortex.s.l.booking@gmail.com)
+#   MAIL_APP_PASSWORD   una "contraseña de aplicación" de ese Gmail (16 letras, NO
+#                       tu contraseña normal). Se crea en:
+#                       myaccount.google.com → Seguridad → Verificación en 2 pasos
+#                       → Contraseñas de aplicaciones.
+#   SOCIO_EMAIL         el correo de tu socio (a quién le llega el recordatorio).
+#                       Puedes poner varios separados por comas.
+#
+# Los dos primeros ya existen si configuraste el backup: se reutilizan.
+# Sin MAIL_* o SOCIO_EMAIL el envío se salta con un aviso claro (no falla en rojo).
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Agenda diaria por correo
+
+on:
+  schedule:
+    - cron: "0 6 * * *"       # todos los días a las 06:00 UTC (08:00 en España en verano)
+  workflow_dispatch:           # permite lanzarla a mano desde la pestaña Actions
+
+jobs:
+  agenda:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Preparar el correo de hoy (desde el panel)
+        id: prep
+        env:
+          URL: https://vortexpos-cloud.onrender.com
+          EMAIL: ${{ secrets.PROVIDER_EMAIL }}
+          PASSWORD: ${{ secrets.PROVIDER_PASSWORD }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          SOCIO_EMAIL: ${{ secrets.SOCIO_EMAIL }}
+        run: |
+          set -euo pipefail
+          # ¿Está el correo configurado? Se decide aquí (los secrets no se pueden
+          # leer con fiabilidad dentro de un "if:"), y se pasa como salida.
+          if [ -n "${MAIL_USERNAME:-}" ] && [ -n "${SOCIO_EMAIL:-}" ]; then
+            echo "send=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "send=false" >> "$GITHUB_OUTPUT"
+          fi
+          FALTAN=""
+          [ -z "${EMAIL:-}" ]    && FALTAN="$FALTAN PROVIDER_EMAIL"
+          [ -z "${PASSWORD:-}" ] && FALTAN="$FALTAN PROVIDER_PASSWORD"
+          if [ -n "$FALTAN" ]; then
+            echo "Faltan secretos:$FALTAN (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+
+          echo "Entrando en el panel (el servidor gratuito puede tardar ~50 s en despertar)…"
+          BODY=$(python3 -c 'import json,os; print(json.dumps({"email":os.environ["EMAIL"].strip(),"password":os.environ["PASSWORD"].strip()}))')
+          RESP=$(curl -sS --max-time 150 -w "\n%{http_code}" -X POST "$URL/api/provider/login" \
+                    -H "Content-Type: application/json" -d "$BODY")
+          CODIGO=$(echo "$RESP" | tail -n1)
+          CUERPO=$(echo "$RESP" | sed '$d')
+          echo "Login: HTTP $CODIGO"
+          TOKEN=$(printf '%s' "$CUERPO" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+          if [ -z "$TOKEN" ]; then
+            echo "No se pudo entrar en el panel (HTTP $CODIGO)."
+            [ "$CODIGO" = "401" ] && echo "401 = email o contrasena incorrectos (los mismos del backup)."
+            [ "$CODIGO" = "429" ] && echo "429 = demasiados intentos, reintenta en un minuto."
+            exit 1
+          fi
+
+          echo "Pidiendo la agenda de hoy…"
+          curl -sS --max-time 150 "$URL/api/provider/agenda-correo" \
+            -H "Authorization: Bearer $TOKEN" -o agenda.json
+
+          # Extrae asunto y cuerpo del JSON sin depender de jq.
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          d = json.load(open("agenda.json"))
+          subject = d.get("subject", "Agenda de Vortex")
+          text = d.get("text", "(sin contenido)")
+          # GITHUB_OUTPUT admite valores multilínea con un delimitador.
+          print(f"subject={subject}")
+          print("body<<__FIN__")
+          print(text)
+          print("__FIN__")
+          PY
+          echo "Agenda preparada."
+
+      - name: Enviar el correo a tu socio
+        if: ${{ steps.prep.outputs.send == 'true' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_APP_PASSWORD }}
+          from: Vortex Agenda <${{ secrets.MAIL_USERNAME }}>
+          to: ${{ secrets.SOCIO_EMAIL }}
+          cc: ${{ secrets.MAIL_USERNAME }}
+          subject: ${{ steps.prep.outputs.subject }}
+          body: ${{ steps.prep.outputs.body }}
+
+      - name: Aviso si falta configurar el correo
+        if: ${{ steps.prep.outputs.send == 'false' }}
+        run: |
+          echo "La agenda se preparó, pero NO se envió: falta configurar el correo."
+          echo "Añade los secretos MAIL_USERNAME, MAIL_APP_PASSWORD y SOCIO_EMAIL."
+          echo "--- Vista previa de lo que se habría enviado ---"
+          python3 -c 'import json; d=json.load(open("agenda.json")); print(d["subject"]); print(); print(d["text"])'

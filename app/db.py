@@ -137,6 +137,25 @@ meta = Table(
     Column("value", Text, nullable=False, default=""),
 )
 
+# ---------------------------------------------------------------- Agenda del equipo
+# Tareas de trabajo de los dos fundadores. NO es de ningún local: es del proveedor,
+# se guarda en el servidor (no en el navegador) para que los dos socios vean lo
+# mismo, y alimenta el correo automático de cada mañana.
+TASK_WHO = ("socio", "fundador", "ambos")
+
+tasks = Table(
+    "tasks", metadata,
+    Column("id", String(40), primary_key=True),
+    Column("title", String(200), nullable=False, default=""),
+    Column("detail", Text, nullable=False, default=""),
+    # Día de la tarea en "AAAA-MM-DD" (texto: ordena bien y es lo que da <input type=date>).
+    Column("date", String(10), nullable=False, default=""),
+    Column("who", String(10), nullable=False, default="ambos"),   # TASK_WHO
+    Column("done", Boolean, nullable=False, default=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
 
 def _column_exists(cx, table: str, column: str) -> bool:
     """Comprobación portable (SQLite y Postgres) de si una columna ya existe."""
