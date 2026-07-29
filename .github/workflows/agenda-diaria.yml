@@ -1,24 +1,24 @@
 # Correo de agenda cada mañana.
 #
 # Cada día a primera hora entra en el panel, pide las tareas de HOY (más las
-# atrasadas y un adelanto de mañana) y se las envía por correo a tu socio, para
-# que le lleguen aunque no abra el centro de mando. El texto lo redacta el propio
-# servidor (endpoint /api/provider/agenda-correo), aquí solo se envía.
+# atrasadas y un adelanto de mañana) y las envía por correo usando Web3Forms
+# (el mismo servicio que ya usa el formulario de la web). El texto lo redacta
+# el propio servidor (endpoint /api/provider/agenda-correo); aquí solo se envía.
+#
+# El correo llega a la bandeja asociada a tu clave de Web3Forms
+# (vortex.s.l.booking@gmail.com). Desde ahí lo lees o se lo reenvías a tu socio.
 #
 # ── Secretos que añades tú una vez en GitHub ─────────────────────────────────
 # Settings → Secrets and variables → Actions → New repository secret:
 #   PROVIDER_EMAIL      el email del panel (el mismo que ya usas para el backup)
 #   PROVIDER_PASSWORD   la contraseña del panel (la misma que ya usas para el backup)
-#   MAIL_USERNAME       el Gmail DESDE el que se envía (p. ej. vortex.s.l.booking@gmail.com)
-#   MAIL_APP_PASSWORD   una "contraseña de aplicación" de ese Gmail (16 letras, NO
-#                       tu contraseña normal). Se crea en:
-#                       myaccount.google.com → Seguridad → Verificación en 2 pasos
-#                       → Contraseñas de aplicaciones.
-#   SOCIO_EMAIL         el correo de tu socio (a quién le llega el recordatorio).
-#                       Puedes poner varios separados por comas.
+#   WEB3FORMS_KEY       tu "access key" de Web3Forms (la misma de la web de contacto).
 #
 # Los dos primeros ya existen si configuraste el backup: se reutilizan.
-# Sin MAIL_* o SOCIO_EMAIL el envío se salta con un aviso claro (no falla en rojo).
+# Sin WEB3FORMS_KEY el envío se salta con un aviso claro (no falla en rojo) y
+# deja en el registro una vista previa de lo que se habría enviado.
+# (Los secretos MAIL_USERNAME / SOCIO_EMAIL de la vía SMTP ya no se usan: puedes
+#  dejarlos o borrarlos, da igual.)
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Agenda diaria por correo
@@ -38,17 +38,17 @@ jobs:
           URL: https://vortexpos-cloud.onrender.com
           EMAIL: ${{ secrets.PROVIDER_EMAIL }}
           PASSWORD: ${{ secrets.PROVIDER_PASSWORD }}
-          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
-          SOCIO_EMAIL: ${{ secrets.SOCIO_EMAIL }}
+          KEY: ${{ secrets.WEB3FORMS_KEY }}
         run: |
           set -euo pipefail
-          # ¿Está el correo configurado? Se decide aquí (los secrets no se pueden
-          # leer con fiabilidad dentro de un "if:"), y se pasa como salida.
-          if [ -n "${MAIL_USERNAME:-}" ] && [ -n "${SOCIO_EMAIL:-}" ]; then
+          # ¿Está el envío configurado? Se decide aquí (los secrets no se leen con
+          # fiabilidad dentro de un "if:") y se pasa como salida.
+          if [ -n "${KEY:-}" ]; then
             echo "send=true" >> "$GITHUB_OUTPUT"
           else
             echo "send=false" >> "$GITHUB_OUTPUT"
           fi
+
           FALTAN=""
           [ -z "${EMAIL:-}" ]    && FALTAN="$FALTAN PROVIDER_EMAIL"
           [ -z "${PASSWORD:-}" ] && FALTAN="$FALTAN PROVIDER_PASSWORD"
@@ -75,40 +75,42 @@ jobs:
           echo "Pidiendo la agenda de hoy…"
           curl -sS --max-time 150 "$URL/api/provider/agenda-correo" \
             -H "Authorization: Bearer $TOKEN" -o agenda.json
+          python3 -c 'import json; d=json.load(open("agenda.json")); assert d.get("subject"); print("Agenda lista:", d["subject"])'
 
-          # Extrae asunto y cuerpo del JSON sin depender de jq.
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          d = json.load(open("agenda.json"))
-          subject = d.get("subject", "Agenda de Vortex")
-          text = d.get("text", "(sin contenido)")
-          # GITHUB_OUTPUT admite valores multilínea con un delimitador.
-          print(f"subject={subject}")
-          print("body<<__FIN__")
-          print(text)
-          print("__FIN__")
-          PY
-          echo "Agenda preparada."
-
-      - name: Enviar el correo a tu socio
+      - name: Enviar el correo (Web3Forms)
         if: ${{ steps.prep.outputs.send == 'true' }}
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_APP_PASSWORD }}
-          from: Vortex Agenda <${{ secrets.MAIL_USERNAME }}>
-          to: ${{ secrets.SOCIO_EMAIL }}
-          cc: ${{ secrets.MAIL_USERNAME }}
-          subject: ${{ steps.prep.outputs.subject }}
-          body: ${{ steps.prep.outputs.body }}
+        env:
+          KEY: ${{ secrets.WEB3FORMS_KEY }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          d = json.load(open("agenda.json"))
+          payload = {
+              "access_key": os.environ["KEY"].strip(),
+              "subject": d.get("subject", "Agenda de Vortex"),
+              "from_name": "Vortex Agenda",
+              "message": d.get("text", "(sin contenido)"),
+          }
+          req = urllib.request.Request(
+              "https://api.web3forms.com/submit",
+              data=json.dumps(payload).encode(),
+              headers={"Content-Type": "application/json", "Accept": "application/json"})
+          try:
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  out = json.loads(r.read().decode())
+                  print("Web3Forms:", r.status, out.get("message"))
+                  if not out.get("success"):
+                      raise SystemExit("Web3Forms devolvió success=false: " + str(out))
+                  print("Correo enviado correctamente.")
+          except urllib.error.HTTPError as e:
+              print("ERROR Web3Forms:", e.code, e.read().decode())
+              raise
+          PY
 
       - name: Aviso si falta configurar el correo
         if: ${{ steps.prep.outputs.send == 'false' }}
         run: |
-          echo "La agenda se preparó, pero NO se envió: falta configurar el correo."
-          echo "Añade los secretos MAIL_USERNAME, MAIL_APP_PASSWORD y SOCIO_EMAIL."
+          echo "La agenda se preparó, pero NO se envió: falta el secreto WEB3FORMS_KEY."
           echo "--- Vista previa de lo que se habría enviado ---"
           python3 -c 'import json; d=json.load(open("agenda.json")); print(d["subject"]); print(); print(d["text"])'
