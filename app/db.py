@@ -141,7 +141,12 @@ meta = Table(
 # Tareas de trabajo de los dos fundadores. NO es de ningún local: es del proveedor,
 # se guarda en el servidor (no en el navegador) para que los dos socios vean lo
 # mismo, y alimenta el correo automático de cada mañana.
-TASK_WHO = ("socio", "fundador", "ambos")
+# A quién se asigna una tarea: nombre libre (los dos fundadores, un agente del
+# equipo, o "Todos" para la tarea común del día). Se guarda el nombre tal cual en
+# vez de un código cerrado para no tener que tocar el servidor cada vez que entre
+# alguien nuevo al equipo.
+TASK_WHO_DEFAULT = "Todos"
+TASK_WHO_MAX = 20
 
 tasks = Table(
     "tasks", metadata,
@@ -150,7 +155,7 @@ tasks = Table(
     Column("detail", Text, nullable=False, default=""),
     # Día de la tarea en "AAAA-MM-DD" (texto: ordena bien y es lo que da <input type=date>).
     Column("date", String(10), nullable=False, default=""),
-    Column("who", String(10), nullable=False, default="ambos"),   # TASK_WHO
+    Column("who", String(20), nullable=False, default="Todos"),   # nombre: Todos/Said/Alejandro/agente…
     Column("done", Boolean, nullable=False, default=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),

@@ -23,7 +23,8 @@ from pydantic import BaseModel
 from sqlalchemy import select, insert, update, delete, and_, or_, case, func as sa_func
 
 from .db import (engine, tenants, records, leads, errors, tasks,
-                 LEAD_LINES, LEAD_STATUSES, LEAD_PRIORITIES, TASK_WHO)
+                 LEAD_LINES, LEAD_STATUSES, LEAD_PRIORITIES,
+                 TASK_WHO_DEFAULT, TASK_WHO_MAX)
 
 router = APIRouter()
 
@@ -502,7 +503,7 @@ class TaskIn(BaseModel):
     title: str = ""
     detail: str = ""
     date: str = ""
-    who: str = "ambos"
+    who: str = TASK_WHO_DEFAULT
 
 
 class TaskPatch(BaseModel):
@@ -556,7 +557,7 @@ def create_task(body: TaskIn, _=Depends(_provider)):
         "title": title,
         "detail": _txt(body.detail, _TASK_LIMITS["detail"]),
         "date": _date_or_empty(body.date),
-        "who": _one_of(body.who or "ambos", TASK_WHO, "who"),
+        "who": _txt(body.who, TASK_WHO_MAX) or TASK_WHO_DEFAULT,
         "done": False, "created_at": ts, "updated_at": ts,
     }
     with engine.begin() as cx:
@@ -578,7 +579,7 @@ def patch_task(task_id: str, body: TaskPatch, _=Depends(_provider)):
     if body.date is not None:
         vals["date"] = _date_or_empty(body.date)
     if body.who is not None:
-        vals["who"] = _one_of(body.who, TASK_WHO, "who")
+        vals["who"] = _txt(body.who, TASK_WHO_MAX) or TASK_WHO_DEFAULT
     if body.done is not None:
         vals["done"] = bool(body.done)
     if not vals:
@@ -601,7 +602,9 @@ def delete_task(task_id: str, _=Depends(_provider)):
     return {"ok": True}
 
 
-_WHO_LABEL = {"socio": "Tu socio", "fundador": "Tú", "ambos": "Los dos"}
+def _who_label(w: str) -> str:
+    """El nombre tal cual; los valores del formato antiguo se traducen."""
+    return {"socio": "Alejandro", "fundador": "Said", "ambos": "Todos"}.get(w, w or "Todos")
 
 
 @router.get("/api/provider/agenda-correo")
@@ -624,10 +627,22 @@ def agenda_correo(_=Depends(_provider)):
             tasks.c.done.is_(False), tasks.c.date == manana))
             .order_by(tasks.c.created_at)).all()
 
-    def linea(r):
-        quien = _WHO_LABEL.get(r.who, "Los dos")
+    def linea(r, con_quien=True):
+        quien = f"  ({_who_label(r.who)})" if con_quien else ""
         extra = f" — {r.detail}" if r.detail else ""
-        return f"  • {r.title}  ({quien}){extra}"
+        return f"  • {r.title}{quien}{extra}"
+
+    def por_persona(filas):
+        """Agrupa las tareas del día por responsable: 'Todos' siempre primero."""
+        grupos: Dict[str, List[Any]] = {}
+        for r in filas:
+            grupos.setdefault(_who_label(r.who), []).append(r)
+        orden = sorted(grupos, key=lambda n: (n != "Todos", n.lower()))
+        salida: List[str] = []
+        for nombre in orden:
+            salida.append(f"  {'— ' + nombre + ' —'}")
+            salida += ["  " + linea(r, con_quien=False) for r in grupos[nombre]]
+        return salida
 
     partes: List[str] = [f"Agenda de VORTEX · {hoy}", ""]
     if atrasadas:
@@ -635,7 +650,7 @@ def agenda_correo(_=Depends(_provider)):
         partes += [linea(r) + f"  [era {r.date}]" for r in atrasadas]
         partes.append("")
     partes.append(f"📌 HOY ({len(de_hoy)}):")
-    partes += [linea(r) for r in de_hoy] if de_hoy else ["  (nada apuntado para hoy 🎉)"]
+    partes += por_persona(de_hoy) if de_hoy else ["  (nada apuntado para hoy 🎉)"]
     if de_manana:
         partes += ["", f"👀 Mañana ({len(de_manana)}):"]
         partes += [linea(r) for r in de_manana]

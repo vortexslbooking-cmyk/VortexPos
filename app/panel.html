@@ -151,9 +151,14 @@
   .chk:hover{border-color:var(--ok)}
   .chk.on{background:var(--ok);border-color:var(--ok);color:#052018}
   .who{display:inline-block;margin-top:6px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:100px}
-  .who.w-amb{background:#1a2740;color:var(--accent)}
-  .who.w-soc{background:var(--warnb);color:var(--warn)}
-  .who.w-fun{background:var(--okb);color:var(--ok)}
+  .grupo{margin-bottom:14px}
+  .grupo:last-child{margin-bottom:0}
+  .grupo-cab{display:flex;align-items:center;gap:8px;margin:4px 0 2px}
+  .grupo-cab .muted{font-size:11.5px;font-weight:700}
+  .grupo .who{margin-top:0}
+  .who.w-todos{background:#1a2740;color:var(--accent)}
+  .who.w-fund{background:var(--warnb);color:var(--warn)}
+  .who.w-agente{background:var(--okb);color:var(--ok)}
 
   /* ---------- fallos ---------- */
   .erow{border:1px solid var(--line);border-radius:12px;background:var(--panel2);padding:13px 14px;margin-bottom:9px}
@@ -896,8 +901,19 @@ async function delLead(id){
 }
 
 /* ================================================================ AGENDA */
-const WHO_LABEL = {ambos:"Los dos", socio:"Tu socio", fundador:"Tú"};
-const WHO_CLS = {ambos:"w-amb", socio:"w-soc", fundador:"w-fun"};
+/* Personas del equipo. "Todos" es la tarea común del día; el resto son los dos
+   fundadores y los agentes. Es una lista, no un código cerrado: para añadir a
+   alguien basta con escribir su nombre en el formulario. */
+const EQUIPO = ["Todos","Said","Alejandro","Nova","Axel","Vera","Leo","Mía","Rex"];
+const WHO_VIEJO = {ambos:"Todos", socio:"Alejandro", fundador:"Said"};   // formato anterior
+const whoName = w => WHO_VIEJO[w] || w || "Todos";
+/* Color por persona: Todos destaca, los fundadores en cálido, los agentes en frío. */
+function whoCls(w){
+  const n = whoName(w);
+  if(n==="Todos") return "w-todos";
+  if(n==="Said"||n==="Alejandro") return "w-fund";
+  return "w-agente";
+}
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 let TASKS = [];                         // tareas del mes visible
 let calRef = new Date();                // mes que se está viendo
@@ -946,19 +962,32 @@ function renderDay(){
   const pend = list.filter(t=>!t.done).length;
   document.getElementById("day-title").innerHTML = `${etiqueta} <span class="muted" style="font-weight:600">· ${fmtDay(daySel)}</span>`;
   document.getElementById("day-count").textContent = list.length ? `${pend} pendiente${pend!==1?"s":""} de ${list.length}` : "";
-  document.getElementById("day-body").innerHTML = list.length ? list.map(t=>`
+  // Agrupadas por persona, con "Todos" (la tarea común del día) siempre arriba.
+  const grupos = {};
+  list.forEach(t=>{ (grupos[whoName(t.who)] = grupos[whoName(t.who)]||[]).push(t); });
+  const orden = Object.keys(grupos).sort((a,b)=> (a==="Todos"?-1:b==="Todos"?1:a.localeCompare(b,"es")));
+  const fila = t=>`
     <div class="task ${t.done?"done":""}">
       <button class="chk ${t.done?"on":""}" onclick='toggleTask(${JSON.stringify(t.id)}, ${!t.done})' title="Marcar hecha">${t.done?"✓":""}</button>
       <div class="task-main">
         <div class="task-title">${esc(t.title)}</div>
         ${t.detail?`<div class="task-detail">${esc(t.detail)}</div>`:""}
-        <span class="who ${WHO_CLS[t.who]||""}">${WHO_LABEL[t.who]||t.who}</span>
       </div>
       <div class="row-actions">
         <button class="btn btn-ghost btn-sm" onclick='openTask(${JSON.stringify(t.id)})'>Editar</button>
         <button class="btn btn-bad btn-sm" onclick='delTask(${JSON.stringify(t.id)})'>✕</button>
       </div>
-    </div>`).join("") : `<div class="empty">Nada para este día. <a href="#" onclick="openTask(null);return false">Añade una tarea</a>.</div>`;
+    </div>`;
+  document.getElementById("day-body").innerHTML = list.length
+    ? orden.map(n=>{
+        const hechas = grupos[n].filter(t=>t.done).length;
+        return `<div class="grupo">
+          <div class="grupo-cab"><span class="who ${whoCls(n)}">${esc(n)}</span>
+            <span class="muted">${hechas}/${grupos[n].length}</span></div>
+          ${grupos[n].map(fila).join("")}
+        </div>`;
+      }).join("")
+    : `<div class="empty">Nada para este día. <a href="#" onclick="openTask(null);return false">Añade una tarea</a>.</div>`;
 }
 
 async function toggleTask(id,done){
@@ -975,7 +1004,10 @@ function openTask(id){
     <div class="field"><label>Detalle</label><textarea id="tf-detail" placeholder="Lo que convenga recordar">${esc(t.detail||"")}</textarea></div>
     <div class="field-row">
       <div class="field"><label>Día</label><input id="tf-date" type="date" value="${esc(t.date||"")}"></div>
-      <div class="field"><label>¿De quién?</label><select id="tf-who">${sel(t.who,[["ambos","Los dos"],["socio","Tu socio"],["fundador","Tú"]])}</select></div>
+      <div class="field"><label>¿De quién?</label>
+        <input id="tf-who" list="equipo-lista" value="${esc(whoName(t.who))}" placeholder="Said, Alejandro, Leo…">
+        <datalist id="equipo-lista">${EQUIPO.map(n=>`<option value="${n}">`).join("")}</datalist>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeTask()">Cancelar</button>
