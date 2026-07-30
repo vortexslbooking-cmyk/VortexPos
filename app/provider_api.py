@@ -22,7 +22,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Request
 from pydantic import BaseModel
 from sqlalchemy import select, insert, update, delete, and_, or_, case, func as sa_func
 
-from .db import (engine, tenants, records, leads, errors, tasks,
+from .db import (engine, tenants, records, documents, leads, errors, tasks,
                  LEAD_LINES, LEAD_STATUSES, LEAD_PRIORITIES,
                  TASK_WHO_DEFAULT, TASK_WHO_MAX)
 
@@ -600,6 +600,46 @@ def delete_task(task_id: str, _=Depends(_provider)):
     if res.rowcount == 0:
         raise HTTPException(404, "Tarea no encontrada")
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- Borrar un local
+# Este es el ÚNICO borrado destructivo de todo el servidor: se lleva por delante
+# el local y todo lo suyo (carta, ventas, cierres). Existe para poder sacar de la
+# base de datos los locales de prueba, no para gestionar clientes.
+#
+# Tres cerrojos, a propósito:
+#   1. Solo se puede borrar un local SUSPENDIDO o de BAJA. Un local Activo o
+#      Pendiente no se borra ni queriendo: primero se suspende, que es un paso
+#      consciente y reversible.
+#   2. Hay que enviar el nombre del negocio en 'confirm', y tiene que coincidir.
+#      Evita el borrado por un id mal copiado.
+#   3. Devuelve el recuento de lo que ha borrado, para poder comprobarlo después.
+class TenantDelete(BaseModel):
+    confirm: str = ""
+
+
+@router.delete("/api/provider/tenants/{tid}")
+def delete_tenant(tid: str, body: TenantDelete, _=Depends(_provider)):
+    with engine.begin() as cx:
+        row = cx.execute(select(tenants).where(tenants.c.id == tid)).first()
+        if not row:
+            raise HTTPException(404, "Local no encontrado")
+        if row.status not in ("Suspendido", "Baja"):
+            raise HTTPException(
+                409, f"'{row.business_name}' está {row.status}. Solo se puede borrar "
+                     "un local Suspendido o de Baja: suspéndelo primero.")
+        if _txt(body.confirm, 200) != (row.business_name or ""):
+            raise HTTPException(
+                400, "Para borrar hay que repetir el nombre exacto del negocio "
+                     f"en 'confirm' (esperaba: '{row.business_name}').")
+
+        n_docs = cx.execute(delete(documents).where(documents.c.tenant_id == tid)).rowcount
+        n_recs = cx.execute(delete(records).where(records.c.tenant_id == tid)).rowcount
+        cx.execute(delete(tenants).where(tenants.c.id == tid))
+
+    return {"ok": True, "deleted": {"tenant": row.business_name,
+                                    "documents": int(n_docs or 0),
+                                    "records": int(n_recs or 0)}}
 
 
 def _who_label(w: str) -> str:
