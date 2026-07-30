@@ -449,6 +449,8 @@ function logErr(msg){
   console.error("[vortexPOS]",msg);
 }
 let persistFailWarned=false; // declarado antes de load(): persist() puede ejecutarse en el primer arranque
+let unsavedState=null;       // estado que el almacén rechazó: se reintenta hasta que entre (ver persist/flushUnsaved)
+let lastStoreError=null;     // último error de escritura, para el diagnóstico del panel técnico
 const money = n => { if(!isFinite(n)) n=0; return (n<-0.004?"−":"") + "€" + (Math.round(Math.abs(n)*100)/100).toFixed(2).replace(".",","); };
 const now = () => Date.now();
 const uid = () => Math.random().toString(36).slice(2,9);
@@ -577,6 +579,7 @@ function clearDemoData(s=S){
 }
 
 function load(){
+  flushUnsaved(); // lo que quedó sin guardar es más reciente que lo del almacén: primero se vuelca, luego se lee
   // intenta datos principales; si están corruptos, recurre a la copia interna antes de re-sembrar
   for(const key of [STORE_KEY,BAK_KEY]){
     try{
@@ -618,14 +621,56 @@ function migrate(s){ // compatibilidad con datos guardados por versiones anterio
     }
   });
 }
-function persist(s=S){
-  try{
-    localStorage.setItem(STORE_KEY,JSON.stringify(s));
-    persistFailWarned=false;
-  }catch(e){
-    logErr("Fallo al guardar datos: "+e.message);
-    if(!persistFailWarned){persistFailWarned=true;toast("⚠ No se pudo guardar — almacenamiento lleno o bloqueado","bad");}
+function writeStore(s){
+  try{ localStorage.setItem(STORE_KEY,JSON.stringify(s)); return true; }
+  catch(e){ lastStoreError=e; return false; }
+}
+/* Libera espacio cuando el almacén está lleno, sacrificando por orden lo que se
+   puede reconstruir o consultar en otro sitio. Un cobro que no se guarda no se
+   recupera de ninguna parte; el detalle línea a línea de un cierre de hace meses
+   sí: su resumen (importes, arqueo, IVA) se conserva intacto, es lo que va al CSV
+   de la gestoría y ya está en el Z impreso y en la nube si el bar la tiene.
+   Devuelve true si ha conseguido soltar algo en este paso. */
+function freeStorageStep(step,s){
+  if(step===0){ // la copia interna se rehace sola en el siguiente backupSnapshot()
+    if(!localStorage.getItem(BAK_KEY))return false;
+    localStorage.removeItem(BAK_KEY); return true;
   }
+  const cls=s.closures||[], keep=(step===1?30:0); // paso 1: conserva el último mes; paso 2: todo el histórico al resumen
+  const viejos=cls.slice(0,Math.max(0,cls.length-keep)).filter(c=>!c.detailPruned);
+  if(!viejos.length)return false;
+  viejos.forEach(c=>{ c.sales=[]; c.moves=[]; c.detailPruned=true; });
+  return true;
+}
+function persist(s=S){
+  if(writeStore(s)){ unsavedState=null; persistFailWarned=false; return true; }
+  for(let step=0;step<3;step++){
+    let liberado=false;
+    try{ liberado=freeStorageStep(step,s); }catch(e){ lastStoreError=e; }
+    if(liberado&&writeStore(s)){
+      unsavedState=null; persistFailWarned=false;
+      logErr("Almacenamiento lleno — espacio liberado para poder guardar (paso "+step+")");
+      if(step>0)toast("Memoria llena: se ha archivado el detalle de los cierres antiguos para poder seguir cobrando","info");
+      return true;
+    }
+  }
+  // Ni liberando cabe (almacén bloqueado o sin cuota): el estado vivo queda en cola
+  // y se vuelca en cuanto haya hueco, en vez de darse por perdido en silencio.
+  unsavedState=s;
+  logErr("Fallo al guardar datos: "+((lastStoreError&&lastStoreError.message)||"almacenamiento no disponible"));
+  if(!persistFailWarned){persistFailWarned=true;toast("⚠ No se pudo guardar — almacenamiento lleno o bloqueado","bad");}
+  return false;
+}
+function flushUnsaved(){ // reintento oportunista: al recargar y en cada latido de la app
+  if(unsavedState)persist(unsavedState);
+}
+/* Aviso cuando el almacén rechaza un dato que es DINERO (cobro, cierre, arqueo).
+   Bloqueante a propósito: un toast se va solo a los 2 s y el camarero seguiría
+   sirviendo mesas creyendo que aquello quedó registrado. Sin jerga técnica: quien
+   lo lee está detrás de la barra, no en soporte. */
+function avisarNoGuardado(titulo,detalle,queHacer){
+  toast("⚠ "+titulo+" — avisa al responsable","bad");
+  alert(titulo.toUpperCase()+"\n\n"+detalle+"\n\n"+queHacer);
 }
 function backupSnapshot(){ // copia interna: se restaura sola si los datos principales se corrompen
   try{const raw=localStorage.getItem(STORE_KEY); if(raw)localStorage.setItem(BAK_KEY,raw);}catch(e){}
@@ -984,8 +1029,13 @@ function openCashMove(type){
     const amount=parseFloat(document.getElementById("cmAmount").value);
     if(!(amount>0)){toast("Introduce un importe válido","bad");return;}
     S.cashMoves.push({id:uid(),type,concept,amount,at:now()});
-    persist();closeDrawer();render();
-    toast(`${type==="in"?"Entrada":"Salida"} de ${money(amount)} registrada`,"ok");
+    const guardado=persist(); // el arqueo del cierre depende de esto: si no se guarda, el cajón descuadra
+    closeDrawer();render();
+    if(guardado){toast(`${type==="in"?"Entrada":"Salida"} de ${money(amount)} registrada`,"ok");return;}
+    // Movimiento aditivo, igual que el cobro: se conserva en memoria y en la cola de reintento.
+    avisarNoGuardado("No se ha podido guardar el movimiento de caja",
+      `${type==="in"?"La entrada":"La salida"} de ${money(amount)} (${concept}) figura en pantalla, pero la memoria del dispositivo está llena y no ha quedado guardada.`,
+      "Apúntalo en papel AHORA y avisa al responsable. No cierres ni recargues la aplicación: en cuanto haya sitio se guardará solo.");
   };
   openDrawer();
 }
@@ -1049,13 +1099,30 @@ function openZClosure(){
 }
 function commitZ(counted,next){
   const sum=salesSummary(S.sales);
-  S.zCounter=(S.zCounter||0)+1;
   const cash={fondoInicial:S.cashFloat||0,ventasEfectivo:cashSalesEfectivo(),entradas:cashIn(),salidas:cashOut(),
     esperado:cashExpected(),contado:counted,descuadre:counted-cashExpected(),fondoSiguiente:next};
-  const c={id:uid(),z:S.zCounter,from:S.sessionStart||now(),to:now(),summary:sum,cash,sales:S.sales.slice(),moves:S.cashMoves.slice()};
+  const c={id:uid(),z:(S.zCounter||0)+1,from:S.sessionStart||now(),to:now(),summary:sum,cash,sales:S.sales.slice(),moves:S.cashMoves.slice()};
+  // El cierre Z es DESTRUCTIVO (vacía la sesión, avanza el contador y cambia el fondo):
+  // a diferencia de un cobro, dejarlo aplicado solo en memoria partiría la realidad en dos
+  // — Z impreso y sesión cerrada en pantalla, pero el disco sigue con las ventas abiertas —
+  // y a la mañana siguiente el bar cerraría caja otra vez con el mismo dinero.
+  // Por eso se aplica, se intenta guardar y, si el almacén lo rechaza, se deshace entero.
+  const previo={sales:S.sales,moves:S.cashMoves,cashFloat:S.cashFloat,sessionStart:S.sessionStart,zCounter:S.zCounter};
+  S.zCounter=c.z;
   (S.closures=S.closures||[]).push(c);
   S.sales=[]; S.cashMoves=[]; S.cashFloat=next; S.sessionStart=now();
-  persist(); backupSnapshot(); render();
+  if(!persist()){
+    S.closures.pop();
+    S.sales=previo.sales; S.cashMoves=previo.moves; S.cashFloat=previo.cashFloat;
+    S.sessionStart=previo.sessionStart; S.zCounter=previo.zCounter;
+    persist(); // el estado revertido queda en la cola de reintento: la sesión sigue abierta
+    closeDrawer(); render();
+    avisarNoGuardado("No se ha podido guardar el cierre Z",
+      `La memoria del dispositivo está llena. El cierre NO se ha hecho: la caja sigue abierta con sus ${sum.tickets} tickets y ${money(sum.total)}, igual que estaba.`,
+      "No se ha impreso ningún cierre válido. Avisa al responsable para hacer sitio y vuelve a cerrar la caja después.");
+    return;
+  }
+  backupSnapshot(); render();
   if(typeof CLOUD!=="undefined")CLOUD.sync(); // archiva el cierre Z en la nube
   if(ADMIN.printer.enabled)printHTML(reportTicketHTML(`CIERRE Z-${pad4(c.z)}`,sum,c.from,c.to,cash));
   showClosureReport(c);
@@ -1587,9 +1654,15 @@ function charge(method){
   S.sales.push(s);
   if(ADMIN.printer.enabled&&ADMIN.printer.receiptOnCharge)printHTML(ticketReceiptHTML(t.name,s.items,method));
   delete S.orders[t.orderId]; t.orderId=null; t.status="free";
-  persist(); closeDrawer(); current="caja"; render();
+  const guardado=persist();
+  closeDrawer(); current="caja"; render();
   if(typeof CLOUD!=="undefined")CLOUD.sync(); // envía la venta a la nube (si está configurada)
-  toast(`Cobrado ${money(s.total)} · ${method}`,"ok");
+  if(guardado){toast(`Cobrado ${money(s.total)} · ${method}`,"ok");return;}
+  // Un cobro sin guardar no puede pasar como un cobro normal. La venta se queda en
+  // memoria y en la cola de reintento: es un cambio aditivo, no descuadra nada.
+  avisarNoGuardado("No se ha podido guardar el cobro",
+    `Se han cobrado ${money(s.total)} en ${method}, pero la memoria del dispositivo está llena y la venta no ha quedado registrada.`,
+    "Apúntalo en papel AHORA y avisa al responsable. No cierres ni recargues la aplicación: en cuanto haya sitio la venta se guardará sola.");
 }
 
 /* ---------------- Drawer ---------------- */
@@ -1931,7 +2004,8 @@ function saveAdmin(){
 function diagText(){
   const size=((localStorage.getItem(STORE_KEY)||"").length/1024).toFixed(1);
   const errs=ERRLOG.length?` · ⚠ ${ERRLOG.length} error(es) — último: ${ERRLOG[ERRLOG.length-1]}`:" · sin errores registrados";
-  return `Diagnóstico: ${S.tables.length} mesas · ${Object.keys(S.orders).length} comandas abiertas · ${S.sales.length} ventas · ${S.reservations.length} reservas · ${size} KB en almacenamiento local · v${APP_VERSION}${errs}`;
+  const pend=unsavedState?" · ⚠ HAY CAMBIOS SIN GUARDAR (almacenamiento lleno o bloqueado)":""; // el soporte tiene que verlo antes de decirle a nadie que reinicie
+  return `Diagnóstico: ${S.tables.length} mesas · ${Object.keys(S.orders).length} comandas abiertas · ${S.sales.length} ventas · ${S.reservations.length} reservas · ${size} KB en almacenamiento local · v${APP_VERSION}${pend}${errs}`;
 }
 
 /* ----- Mantenimiento ----- */
@@ -2131,7 +2205,7 @@ function uiIdle(){ // no re-renderizar mientras el usuario tiene un cajón o el 
       && !document.getElementById("adminScrim").classList.contains("on")
       && !document.getElementById("pinScrim").classList.contains("on");
 }
-setInterval(()=>{ tickClock(); if(uiIdle()) render(); }, 30000);
+setInterval(()=>{ flushUnsaved(); tickClock(); if(uiIdle()) render(); }, 30000); // flush: recupera solo un guardado fallido sin que nadie recargue
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&uiIdle()){tickClock();render();} }); // al despertar la tablet, refresca temporizadores
 
 /* ============================================================
