@@ -2098,7 +2098,7 @@ function printHTML(html,force){
 }
 /* Aviso legal fijo del piloto: vortexPOS es gestión interna, la factura la emite
    la caja del bar. Va en TODOS los impresos y NO es editable desde el panel. */
-const LEGAL_NOTE = '<div class="c">Documento interno — sin validez fiscal</div>';
+const LEGAL_NOTE = '<div class="c">Documento interno — no es factura</div>';
 function ticketComandaHTML(tableName,station,items){
   const b=ADMIN.business;
   const rows=items.map(i=>`<tr><td class="qty">${i.qty}×</td><td>${esc(i.name)}</td></tr>${i.notes?`<tr><td></td><td class="note">&gt;&gt; ${esc(i.notes)}</td></tr>`:""}`).join("");
