@@ -442,6 +442,7 @@ table.data tr:hover td{background:var(--panel-2)}
 
 const STORE_KEY = "vortexpos.v1";
 const BAK_KEY = "vortexpos.v1.bak";
+const FISCAL_KEY = "vortexpos.v1.fiscal";  // cola de facturas pendientes de emitir
 const ERRLOG = []; // últimos errores en tiempo de ejecución — visibles en el diagnóstico del panel técnico
 function logErr(msg){
   ERRLOG.push(new Date().toLocaleTimeString("es-ES")+" · "+msg);
@@ -1657,6 +1658,7 @@ function charge(method){
   const guardado=persist();
   closeDrawer(); current="caja"; render();
   if(typeof CLOUD!=="undefined")CLOUD.sync(); // envía la venta a la nube (si está configurada)
+  if(typeof FISCAL!=="undefined")FISCAL.encolar(s); // factura VeriFactu (si el local la tiene activa)
   if(guardado){toast(`Cobrado ${money(s.total)} · ${method}`,"ok");return;}
   // Un cobro sin guardar no puede pasar como un cobro normal. La venta se queda en
   // memoria y en la cola de reintento: es un cambio aditivo, no descuadra nada.
@@ -2112,7 +2114,29 @@ function ticketComandaHTML(tableName,station,items){
     <div class="c">vortexPOS</div>
     ${LEGAL_NOTE}`;
 }
-function ticketReceiptHTML(tableName,items,method){
+/* Pie fiscal del ticket. Solo aparece si esa venta llegó a facturarse de verdad.
+   Si el local no factura (solo comandas), el ticket sale como siempre con la nota
+   de "documento interno". Nunca se imprime un QR inventado ni un texto VERI*FACTU
+   sin registro detrás: eso sería falsear una factura. */
+function bloqueFiscal(f){
+  if(!f) return "";
+  if(!f.qr) return `<div class="hr"></div><div class="c" style="font-size:11px">
+      FACTURA PENDIENTE DE REGISTRO<br>Pide el ticket definitivo al responsable.</div>`;
+  return `<div class="hr"></div>
+    <div class="c" style="font-size:11px">Factura ${esc(f.serie)}-${esc(f.numero)}</div>
+    <div class="c"><img src="data:image/png;base64,${f.qr}" style="width:32mm;height:32mm"></div>
+    <div class="c" style="font-size:9px;line-height:1.25">VERI*FACTU<br>
+      Factura verificable en la sede electronica de la AEAT</div>`;
+}
+function reimprimirFactura(ventaId){
+  const v=(S.sales||[]).find(x=>x.id===ventaId)
+      || ((S.closures||[]).flatMap(c=>c.sales||[]).find(x=>x.id===ventaId));
+  if(!v){ toast("No encuentro esa venta","bad"); return; }
+  if(!v.fiscal||!v.fiscal.qr){ toast("Esa venta todavia no tiene factura registrada","info"); return; }
+  const t=(S.tables||[]).find(x=>x.id===v.tableId);
+  printHTML(ticketReceiptHTML(t?t.name:"", v.items, v.method, v.fiscal));
+}
+function ticketReceiptHTML(tableName,items,method,fiscal){
   const b=ADMIN.business;
   const total=items.reduce((s,i)=>s+i.price*i.qty,0);
   const vr=(parseFloat(b.vat)||0)/100, base=total/(1+vr);
@@ -2132,7 +2156,8 @@ function ticketReceiptHTML(tableName,items,method){
     </table>
     <div class="hr"></div>
     ${b.ticketFooter?`<div class="c">${esc(b.ticketFooter)}</div>`:""}
-    ${LEGAL_NOTE}`;
+    ${bloqueFiscal(fiscal)}
+    ${fiscal&&fiscal.qr?"":LEGAL_NOTE}`;
 }
 function printComanda(tableName,items){
   if(!(ADMIN.printer.enabled&&ADMIN.printer.autoOnSend))return;
@@ -2215,6 +2240,103 @@ document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&uiIdle()
    PULL: carta remota editada por el proveedor (Last-Write-Wins por fecha).
    Si no hay internet o la licencia está suspendida, la app NO se detiene.
    ============================================================ */
+/* ════════════════════════════════════════════════════════════════════
+   FACTURACIÓN (VeriFactu)
+
+   La app NUNCA habla con Hacienda ni con el proveedor homologado: manda la
+   venta al servidor de Vortex y recibe el QR ya hecho. La clave de API vive
+   solo en el servidor, porque este fichero está en la tablet del bar y
+   cualquiera podría abrirlo y leerla.
+
+   Es OPCIONAL y va apagado por defecto. Un bar que solo quiere comandas no se
+   entera de que esto existe. Solo se enciende cuando el proveedor configura la
+   clave y el NIF de ese local desde el panel.
+
+   Offline: si no hay red, la factura queda EN COLA y se reintenta. Nunca se
+   bloquea el cobro por esto — el camarero tiene que poder seguir sirviendo.
+   ════════════════════════════════════════════════════════════════════ */
+const FISCAL={
+  cola:[],                       // ventas pendientes de facturar
+  activo:false,                  // lo dice el servidor, no se configura aquí
+  enviando:false,
+
+  cargar(){
+    try{ this.cola = JSON.parse(localStorage.getItem(FISCAL_KEY)||"[]")||[]; }
+    catch(e){ this.cola=[]; }
+  },
+  guardar(){
+    try{ localStorage.setItem(FISCAL_KEY, JSON.stringify(this.cola.slice(-200))); }
+    catch(e){ /* si no cabe, la cola vive en memoria: el cobro ya está a salvo */ }
+  },
+
+  /* Se llama tras cobrar. No espera respuesta: encola y lanza el envío. */
+  encolar(venta){
+    if(!CLOUD.cfg()) return;                    // sin nube no hay facturación
+    this.cola.push({record_id:venta.id, importe_total:venta.total,
+                    descripcion:(venta.items||[]).slice(0,3)
+                      .map(i=>i.name).join(", ").slice(0,110) || "Consumicion",
+                    intentos:0});
+    this.guardar();
+    this.enviar();
+  },
+
+  async enviar(){
+    if(this.enviando || !this.cola.length) return;
+    const cfg=CLOUD.cfg(); if(!cfg) return;
+    if(!CLOUD.token){ try{ await CLOUD.sync(); }catch(e){} }
+    if(!CLOUD.token) return;                    // sin sesión: se reintenta luego
+    this.enviando=true;
+    try{
+      while(this.cola.length){
+        const p=this.cola[0];
+        let r;
+        try{
+          r=await fetch(cfg.url+"/api/device/verifactu/emitir",{
+            method:"POST",
+            headers:{"Content-Type":"application/json","Authorization":"Bearer "+CLOUD.token},
+            body:JSON.stringify({record_id:p.record_id, importe_total:p.importe_total,
+                                 descripcion:p.descripcion})});
+        }catch(e){ break; }                     // sin red: se queda en cola, se reintenta
+
+        if(r.status===409){                     // este local no factura: no es un error
+          this.activo=false; this.cola=[]; this.guardar(); break;
+        }
+        if(r.status===401){ CLOUD.token=null; break; }   // sesión caducada
+        if(r.status>=500){                      // fallo del proveedor: reintentar
+          p.intentos=(p.intentos||0)+1;
+          if(p.intentos>=8){ this.cola.shift(); this.guardar(); FISCAL.avisarFallo(p); }
+          break;
+        }
+        if(r.ok){
+          const d=await r.json();
+          this.activo=true;
+          const v=(S.sales||[]).find(x=>x.id===p.record_id);
+          if(v && d.factura){                   // se guarda con la venta, para el ticket
+            v.fiscal={serie:d.factura.serie, numero:d.factura.numero,
+                      url:d.factura.url_aeat, qr:d.factura.qr, estado:d.factura.estado};
+            persist();
+          }
+        }
+        this.cola.shift(); this.guardar();
+      }
+    } finally { this.enviando=false; }
+    FISCAL.pintarAviso();
+  },
+
+  /* Una factura que no sale tras 8 intentos deja de ser un problema técnico y
+     pasa a ser un problema del bar: hay que decírselo, no tragárselo. */
+  avisarFallo(p){
+    try{ logErr("verifactu", "No se pudo emitir la factura de la venta "+p.record_id); }catch(e){}
+    toast("⚠ Una venta no se ha podido facturar. Avisa al responsable.","bad");
+  },
+
+  pintarAviso(){
+    const el=document.getElementById("fiscalPend"); if(!el) return;
+    el.textContent = this.cola.length ? ("⚠ "+this.cola.length+" sin facturar") : "";
+    el.style.display = this.cola.length ? "" : "none";
+  },
+};
+
 const CLOUD={
   token:null, syncing:false, lastOk:null,
   cfg(){ const c=ADMIN.cloud||{}; const url=(c.url||"").replace(/\/$/,""); const lic=(c.licenseKey||"").trim();
@@ -2313,7 +2435,11 @@ const CLOUD={
   }
 };
 // disparadores: cada 60 s, al recuperar internet, y al volver a primer plano
+/* Se recupera la cola de facturas del arranque anterior: si la tablet se apagó
+   con facturas pendientes, se emiten ahora. Sin esto se perderían. */
+FISCAL.cargar(); FISCAL.pintarAviso(); FISCAL.enviar();
 setInterval(()=>{ CLOUD.sync(); }, 60000);
+setInterval(()=>{ if(typeof FISCAL!=="undefined")FISCAL.enviar(); }, 45000); // reintenta facturas pendientes
 window.addEventListener("online",()=>CLOUD.sync());
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden)CLOUD.sync(); });
 

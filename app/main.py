@@ -608,6 +608,8 @@ def sync(body: SyncIn, dev=Depends(require_device)):
 # ------------------------------------------------- Routers del centro de mando
 # Van al final a propósito: necesitan que main esté completamente cargado.
 from .backup_api import router as backup_router          # noqa: E402
-from .provider_api import router as provider_router      # noqa: E402
+from .provider_api import router as provider_router
+from .verifactu_api import router as verifactu_router      # noqa: E402
 app.include_router(backup_router)
 app.include_router(provider_router)
+app.include_router(verifactu_router)

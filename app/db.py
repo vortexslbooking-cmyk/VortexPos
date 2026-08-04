@@ -137,6 +137,53 @@ meta = Table(
     Column("value", Text, nullable=False, default=""),
 )
 
+# ---------------------------------------------------------------- VeriFactu
+# Configuración fiscal de cada local. Va en tabla aparte y NO dentro de tenants
+# a propósito: aquí vive la clave de API del proveedor homologado, que es un
+# secreto de verdad, y así nunca sale en los listados normales de locales ni en
+# la copia de seguridad que se descarga desde el panel.
+#
+# La clave JAMÁS baja a la tablet del bar. La app manda la venta a este servidor
+# y es el servidor quien habla con el proveedor. Si la clave viviera en la app,
+# cualquiera que abriese el HTML podría emitir facturas en nombre del bar.
+verifactu = Table(
+    "verifactu", metadata,
+    Column("tenant_id", String(40), primary_key=True),
+    # Clave del proveedor (hoy Verifacti). Empieza por vf_test_ o vf_prod_.
+    Column("api_key", Text, nullable=False, default=""),
+    # NIF del BAR, no de Vortex: cada contribuyente tiene su propia alta.
+    Column("nif", String(20), nullable=False, default=""),
+    Column("serie", String(20), nullable=False, default="A"),
+    # Último número usado. La numeración debe ser correlativa y sin huecos.
+    Column("ultimo_numero", Integer, nullable=False, default=0),
+    # Mientras esté en False, la app NO emite facturas: solo comandas.
+    Column("activo", Boolean, nullable=False, default=False),
+    # "test" o "produccion". En test las facturas NO tienen validez legal.
+    Column("entorno", String(12), nullable=False, default="test"),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+# Cada factura emitida y lo que devolvió la AEAT. Es el registro que hay que
+# poder enseñar a un inspector, así que aquí no se borra nunca nada.
+facturas = Table(
+    "facturas", metadata,
+    Column("id", String(40), primary_key=True),
+    Column("tenant_id", String(40), nullable=False),
+    # Venta de la app que originó la factura: evita emitir dos veces la misma.
+    Column("record_id", String(40), nullable=False),
+    Column("serie", String(20), nullable=False, default=""),
+    Column("numero", String(20), nullable=False, default=""),
+    Column("importe", Float, nullable=False, default=0.0),
+    Column("estado", String(24), nullable=False, default="pendiente"),
+    Column("uuid_proveedor", String(60), nullable=False, default=""),
+    Column("url_aeat", Text, nullable=False, default=""),
+    Column("qr_base64", Text, nullable=False, default=""),
+    Column("error", Text, nullable=False, default=""),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("tenant_id", "record_id", name="uq_factura_venta"),
+)
+
+
 # ---------------------------------------------------------------- Agenda del equipo
 # Tareas de trabajo de los dos fundadores. NO es de ningún local: es del proveedor,
 # se guarda en el servidor (no en el navegador) para que los dos socios vean lo
