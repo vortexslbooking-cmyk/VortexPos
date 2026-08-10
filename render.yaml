@@ -11,10 +11,20 @@ services:
     plan: free                      # sube a "starter" cuando tengas clientes
     healthCheckPath: /health
     envVars:
+      # La base de datos ya NO la gestiona Render. El Postgres gratuito de Render
+      # caduca a los 30 días de crearse y se borra; el de Neon no caduca. Como no
+      # hay ingresos todavía, se decidió (10-08-2026) no pagar hosting de base de
+      # datos hasta tener el primer cliente.
+      #
+      # El valor se pone A MANO en el panel de Render (Environment → DATABASE_URL)
+      # con la cadena de conexión de Neon, que termina en "?sslmode=require".
+      #
+      # CUANDO ENTRE EL PRIMER CLIENTE, hay que revisar esto: el plan gratuito de
+      # Neon da 100 CU-hora al mes y un bar con el POS abierto en horario de
+      # servicio se come casi todas. Si se agotan, la base se suspende hasta el
+      # mes siguiente — y eso pasaría a mitad de servicio, sin avisar.
       - key: DATABASE_URL
-        fromDatabase:
-          name: vortexpos-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET             # se genera una clave segura automáticamente
         generateValue: true
       - key: PROVIDER_EMAIL
@@ -22,13 +32,12 @@ services:
       - key: PROVIDER_PASSWORD
         sync: false                 # lo defines tú en el panel de Render (contraseña fuerte)
 
-databases:
-  - name: vortexpos-db
-    # ATENCIÓN: el plan gratuito de Postgres en Render CADUCA y la base de datos
-    # se borra al vencer el plazo desde su creación. Antes de meter un cliente
-    # real, cámbialo a "basic-256mb" (o superior) en el panel de Render.
-    # Y en cualquier caso, programa `backup.py` a diario: es tu única red de
-    # seguridad si el proveedor de hosting falla. Ver README, sección "Copias".
-    plan: free
-    databaseName: vortexpos
-    postgresMajorVersion: "16"
+# Aquí había una base de datos Postgres gestionada por Render. Se quitó el
+# 10-08-2026: su plan gratuito caduca a los 30 días de crearse y después se
+# borra con todo dentro. Ahora el Postgres vive en Neon, cuyo plan gratuito es
+# permanente, y Render solo conoce la cadena de conexión.
+#
+# La copia de seguridad diaria cifrada (.github/workflows/backup-diario.yml)
+# sigue siendo la red de verdad, y no depende de quién aloje la base. Con
+# cualquier proveedor, esa copia es lo único que garantiza que el trabajo
+# comercial no se pierde. Ver README, sección "Copias".

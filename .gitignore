@@ -11,3 +11,7 @@ apps/android/android/
 apps/windows/src-tauri/target/
 apps/windows/src-tauri/icons/
 apps/windows/src-tauri/gen/
+# Copias de seguridad de la base de datos. Llevan dentro los hash de los PIN de
+# los clientes: no salen de este ordenador ni por accidente.
+copias-seguridad/
+*.json.enc
