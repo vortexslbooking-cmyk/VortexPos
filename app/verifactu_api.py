@@ -230,6 +230,105 @@ def emitir(body: EmitirIn, dev=Depends(lambda authorization=Header(None):
     return {"repetida": False, "entorno": entorno, "factura": _factura_publica(r)}
 
 
+class RectificarIn(BaseModel):
+    record_id: str                # id de la contra-venta (la anulación)
+    rectifica_record_id: str      # id de la venta original que se anula
+    importe_total: float          # positivo: el importe que se devuelve
+    base_imponible: Optional[float] = None
+    tipo_iva: int = 21
+    descripcion: str = "Anulacion"
+
+
+@router.post("/api/device/verifactu/rectificar")
+def rectificar(body: RectificarIn, dev=Depends(lambda authorization=Header(None):
+                                               __import__("app.main", fromlist=["require_device"])
+                                               .require_device(authorization))):
+    """
+    La llama la APP cuando se anula una venta que ya se habia facturado.
+
+    Una factura emitida NO se borra ni se corrige: se emite otra factura
+    RECTIFICATIVA que la deja sin efecto (art. 11 RD 1007/2023 y art. 15
+    RD 1619/2012). Como los tickets de un bar son facturas simplificadas (F2),
+    su rectificativa es siempre del tipo **R5**, cualquiera que sea el motivo.
+
+    Se emite "por diferencias" (tipo_rectificativa "I") y con los importes en
+    NEGATIVO: la diferencia respecto de lo facturado es el importe entero con el
+    signo cambiado. Asi la suma de la serie da lo realmente cobrado.
+    """
+    tid = dev["tenant_id"]
+    with engine.begin() as cx:
+        cfg = cx.execute(select(verifactu).where(verifactu.c.tenant_id == tid)).first()
+        if not cfg or not cfg.activo:
+            raise HTTPException(409, "Este local no tiene la facturacion activada")
+        if not cfg.api_key or not cfg.nif:
+            raise HTTPException(409, "Falta la clave o el NIF del local")
+
+        # La original tiene que existir y estar emitida: no se puede rectificar
+        # una factura que nunca llego a la AEAT.
+        orig = cx.execute(select(facturas).where(
+            (facturas.c.tenant_id == tid) &
+            (facturas.c.record_id == body.rectifica_record_id))).first()
+        if not orig:
+            raise HTTPException(409, "La venta que se anula no tiene factura emitida")
+        if orig.estado == "error":
+            raise HTTPException(409, "La factura original quedo en error: no hay nada que rectificar")
+
+        # Idempotencia, igual que al emitir: una anulacion se rectifica una vez.
+        ya = cx.execute(select(facturas).where(
+            (facturas.c.tenant_id == tid) &
+            (facturas.c.record_id == body.record_id))).first()
+        if ya:
+            return {"repetida": True, "factura": _factura_publica(ya)}
+
+        numero = (cfg.ultimo_numero or 0) + 1
+        cx.execute(update(verifactu).where(verifactu.c.tenant_id == tid)
+                   .values(ultimo_numero=numero, updated_at=_ahora()))
+        serie, clave, entorno = cfg.serie or "A", cfg.api_key, cfg.entorno
+        orig_serie, orig_numero = orig.serie, orig.numero
+        orig_fecha = orig.created_at
+
+    importe = abs(body.importe_total)
+    base = body.base_imponible
+    if base is None:
+        base = round(importe / (1 + body.tipo_iva / 100.0), 2)
+    base = abs(base)
+    cuota = round(importe - base, 2)
+
+    cuerpo = {
+        "serie": serie, "numero": str(numero).zfill(4),
+        "fecha_expedicion": _ahora().strftime("%d-%m-%Y"),
+        "tipo_factura": "R5",                       # rectificativa de simplificada
+        "tipo_rectificativa": "I",                  # por diferencias
+        "descripcion": body.descripcion[:120],
+        "importe_total": f"-{importe:.2f}",
+        "lineas": [{"base_imponible": f"-{base:.2f}",
+                    "tipo_impositivo": str(body.tipo_iva),
+                    "cuota_repercutida": f"-{cuota:.2f}"}],
+        "facturas_rectificadas": [{
+            "serie": orig_serie, "numero": orig_numero,
+            "fecha_expedicion": orig_fecha.strftime("%d-%m-%Y"),
+        }],
+    }
+    res = _llamar_proveedor(clave, cuerpo)
+    d = res.get("datos") or {}
+    ts = _ahora()
+    fid = "rec_" + body.record_id[-12:] + str(numero)
+
+    with engine.begin() as cx:
+        cx.execute(insert(facturas).values(
+            id=fid[:40], tenant_id=tid, record_id=body.record_id,
+            serie=serie, numero=str(numero).zfill(4), importe=-importe,
+            estado=(d.get("estado") or "pendiente") if res["ok"] else "error",
+            uuid_proveedor=d.get("uuid", ""), url_aeat=d.get("url", ""),
+            qr_base64=d.get("qr", ""), error="" if res["ok"] else res["error"][:900],
+            created_at=ts))
+        r = cx.execute(select(facturas).where(facturas.c.id == fid[:40])).first()
+
+    if not res["ok"]:
+        raise HTTPException(502, f"El proveedor rechazo la rectificativa: {res['error'][:200]}")
+    return {"repetida": False, "entorno": entorno, "factura": _factura_publica(r)}
+
+
 @router.get("/api/provider/tenants/{tid}/facturas")
 def listar(tid: str, limit: int = 100, _=Depends(_provider)):
     with engine.begin() as cx:

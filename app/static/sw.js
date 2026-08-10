@@ -6,7 +6,7 @@
  * Las llamadas a /api/ NUNCA se interceptan: van directas a la red y la propia
  * app gestiona el modo sin conexión.
  */
-const CACHE = "vortexpos-app-v2.1.0";
+const CACHE = "vortexpos-app-v2.3.0";
 const ASSETS = [
   "/app/",
   "/app/manifest.webmanifest",

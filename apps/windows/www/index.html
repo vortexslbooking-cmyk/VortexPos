@@ -924,16 +924,23 @@ function staffDelete(id){
 /* ----- CAJA ----- */
 function salesSummary(sales){
   const byMethod={}, byProduct={};
-  let total=0, items=0;
+  let total=0, items=0, tickets=0, anulaciones=0, anulado=0;
   sales.forEach(s=>{
+    // Una anulación es una venta más, con el importe y las unidades en negativo.
+    // Por eso suma igual que las demás y todo (total, efectivo, IVA, productos)
+    // se queda neto solo: no hay que restar por separado en ningún sitio.
     total+=s.total;
     byMethod[s.method]=(byMethod[s.method]||0)+s.total;
+    if(s.rectificaA){ anulaciones++; anulado+=Math.abs(s.total); } else { tickets++; }
     s.items.forEach(i=>{
       const p=byProduct[i.name]=byProduct[i.name]||{qty:0,amount:0};
       p.qty+=i.qty; p.amount+=i.price*i.qty; items+=i.qty;
     });
   });
-  return {total,tickets:sales.length,items,byMethod,byProduct,avg:sales.length?total/sales.length:0};
+  // El ticket medio se calcula sobre los tickets de verdad. Contar las anulaciones
+  // como tickets hundiría la media y el dueño leería un dato falso.
+  return {total,tickets,items,byMethod,byProduct,anulaciones,anulado,
+          avg:tickets?total/tickets:0};
 }
 function renderCaja(){
   const sess=S.sales; // ventas desde el último cierre Z
@@ -984,15 +991,9 @@ function renderCaja(){
   }).join("")+`</div>` : emptyState(iconCard(),"No hay cuentas abiertas ahora mismo.");
 
   const histHead=`<div class="section-head" style="margin-top:22px"><h2>Ventas de la sesión</h2><div class="line"></div></div>`;
-  const rows=sess.slice().sort((a,b)=>b.paidAt-a.paidAt).map(s=>{
-    const t=S.tables.find(x=>x.id===s.tableId);
-    return `<tr><td>${fmtTime(s.paidAt)}</td><td><b>${t?t.name:s.tableId}</b></td>
-      <td>${s.items.reduce((n,i)=>n+i.qty,0)} art.</td>
-      <td><span class="tag ${s.method}">${s.method}</span></td>
-      <td style="text-align:right;font-weight:800">${money(s.total)}</td></tr>`;
-  }).join("");
+  const rows=sess.slice().sort((a,b)=>b.paidAt-a.paidAt).map(s=>filaVenta(s)).join("");
   const hist = sess.length? `<div class="table-wrap"><table class="data">
-    <thead><tr><th>Hora</th><th>Mesa</th><th>Artículos</th><th>Pago</th><th style="text-align:right">Total</th></tr></thead>
+    <thead><tr><th>Hora</th><th>Mesa</th><th>Artículos</th><th>Pago</th><th style="text-align:right">Total</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>` : emptyState(iconChart(),"Aún no hay ventas en esta sesión.");
 
   const zHead=`<div class="section-head" style="margin-top:22px"><h2>Historial de cierres</h2><div class="line"></div>
@@ -1048,7 +1049,8 @@ function showXReport(){
     cash:{fondoInicial:S.cashFloat||0,ventasEfectivo:cashSalesEfectivo(),entradas:cashIn(),salidas:cashOut(),esperado:cashExpected()}});
 }
 function showClosureReport(c){
-  showCashReport({title:`Cierre Z-${pad4(c.z)}`,subtitle:"Sesión cerrada y archivada",sum:c.summary,from:c.from,to:c.to,cash:c.cash});
+  showCashReport({title:`Cierre Z-${pad4(c.z)}`,subtitle:"Sesión cerrada y archivada",
+                  sum:c.summary,from:c.from,to:c.to,cash:c.cash,ventas:c.sales||[]});
 }
 function openZClosure(){
   const sum=salesSummary(S.sales);
@@ -1129,7 +1131,142 @@ function commitZ(counted,next){
   showClosureReport(c);
   toast(`Cierre Z-${pad4(c.z)} realizado`,"ok");
 }
-function showCashReport({title,subtitle,sum,from,to,cash}){
+
+/* ----- Anulación y devolución de una venta ya cobrada -----------------------
+   Una venta cobrada NO se borra ni se edita nunca. Se anula creando otra venta
+   con el importe y las unidades en negativo que apunta a la original
+   (art. 11 del RD 1007/2023: registro de anulación, no supresión).
+
+   Consecuencias de hacerlo así, y por las que se hace así:
+     · La sesión y el cierre Z cuadran solos, sin restar en ningún sitio.
+     · El efectivo esperado en el cajón baja si se devuelve en efectivo, porque
+       el dinero ha salido de verdad.
+     · El histórico conserva las dos operaciones: qué se cobró y qué se devolvió,
+       cuándo, quién y por qué. Eso es lo que mira una inspección.
+
+   La contra-venta SIEMPRE se registra en la sesión abierta, aunque la original
+   sea de un cierre Z anterior. Un cierre Z está cerrado: la devolución de hoy
+   es un movimiento de hoy. */
+function buscarVenta(id){
+  return (S.sales||[]).find(x=>x.id===id)
+      || ((S.closures||[]).flatMap(c=>c.sales||[]).find(x=>x.id===id))
+      || null;
+}
+function ventaAnulada(id){
+  // El vínculo vive solo en la contra-venta: así no hay que tocar la original,
+  // que puede estar dentro de un cierre Z ya archivado e inmutable.
+  return (S.sales||[]).some(x=>x.rectificaA===id)
+      || (S.closures||[]).some(c=>(c.sales||[]).some(x=>x.rectificaA===id));
+}
+function anularVenta(ventaId,motivo,metodo){
+  const v=buscarVenta(ventaId);
+  if(!v){toast("No se encuentra esa venta","bad");return false;}
+  if(v.rectificaA){toast("Una anulación no se anula: vuelve a cobrar","bad");return false;}
+  if(ventaAnulada(ventaId)){toast("Esa venta ya estaba anulada","info");return false;}
+
+  const items=(v.items||[]).map(i=>({...i,qty:-i.qty}));
+  const c=sale(v.tableId,metodo||v.method,now(),items);
+  // El importe se copia con el signo cambiado en vez de recalcularlo desde las
+  // líneas: si la venta original se cobró con algún ajuste, recalcular dejaría
+  // un descuadre de céntimos que nadie sabría explicar tres semanas después.
+  c.total=-Math.abs(v.total);
+  c.rectificaA=v.id;
+  c.motivo=String(motivo||"").trim().slice(0,120);
+  c.anuladaEn=now();
+
+  S.sales.push(c);
+  if(!persist()){
+    S.sales.pop();
+    persist();                       // el estado revertido queda en la cola de reintento
+    avisarNoGuardado("No se ha podido registrar la anulación",
+      `La memoria del dispositivo está llena. La anulación de ${money(Math.abs(v.total))} NO ha quedado registrada.`,
+      "NO devuelvas el dinero todavía. Avisa al responsable para hacer sitio y repite la anulación.");
+    return false;
+  }
+
+  if(ADMIN.printer.enabled)printHTML(ticketReceiptHTML(nombreMesa(v.tableId),c.items,c.method,null,c));
+  if(typeof CLOUD!=="undefined")CLOUD.sync();
+  if(typeof FISCAL!=="undefined")FISCAL.encolarRectificativa(c,v);
+  render();
+  toast(`Anulada · devueltos ${money(Math.abs(v.total))} en ${c.method}`,"ok");
+  return true;
+}
+function nombreMesa(tableId){
+  const t=(S.tables||[]).find(x=>x.id===tableId);
+  return t?t.name:(tableId||"");
+}
+/* Una fila del histórico de ventas. Se usa igual en la sesión abierta y dentro
+   de un cierre Z ya archivado, para que una devolución del día siguiente se
+   pida desde el mismo sitio y de la misma forma. */
+function filaVenta(s){
+  const anulada=ventaAnulada(s.id);
+  const arts=s.items.reduce((n,i)=>n+i.qty,0);
+  if(s.rectificaA) return `<tr style="color:var(--bad)">
+    <td>${fmtTime(s.paidAt)}</td>
+    <td><b>${esc(nombreMesa(s.tableId))}</b><div style="font-size:11px;font-weight:700">ANULACIÓN${s.motivo?" · "+esc(s.motivo):""}</div></td>
+    <td>${arts} art.</td>
+    <td><span class="tag ${s.method}">${s.method}</span></td>
+    <td style="text-align:right;font-weight:800">${money(s.total)}</td>
+    <td></td></tr>`;
+  return `<tr${anulada?' style="opacity:.5"':''}>
+    <td>${fmtTime(s.paidAt)}</td>
+    <td><b>${esc(nombreMesa(s.tableId))}</b>${anulada?'<div style="font-size:11px;font-weight:700;color:var(--bad)">anulada</div>':''}</td>
+    <td>${arts} art.</td>
+    <td><span class="tag ${s.method}">${s.method}</span></td>
+    <td style="text-align:right;font-weight:800${anulada?';text-decoration:line-through':''}">${money(s.total)}</td>
+    <td style="text-align:right">${anulada?"":`<button class="btn btn-ghost btn-sm" data-anular="${s.id}">Anular</button>`}</td></tr>`;
+}
+function openAnulacion(ventaId){
+  const v=buscarVenta(ventaId); if(!v)return;
+  document.getElementById("drawerHead").innerHTML=`
+    <div><div class="dt">Anular venta</div><div class="ds">${nombreMesa(v.tableId)} · ${fmtTime(v.paidAt)} · ${money(v.total)}</div></div>
+    <button class="x" id="closeDrawer">${iconX()}</button>`;
+  document.getElementById("drawerBody").innerHTML=`
+    <div style="background:var(--soon-bg);border:1px solid var(--warn);border-radius:12px;padding:12px 14px;font-size:13px;font-weight:600;color:var(--soon-tx);margin-bottom:16px">
+      La venta no se borra. Queda registrada y se le suma una anulación por
+      ${money(v.total)} en negativo. El histórico conserva las dos.
+    </div>
+    <div class="table-wrap"><table class="data"><tbody>
+      ${v.items.map(i=>`<tr><td style="font-weight:800;color:var(--brand);width:50px">${i.qty}×</td><td>${esc(i.name)}</td><td style="text-align:right;font-weight:700">${money(i.price*i.qty)}</td></tr>`).join("")}
+      <tr><td colspan="2" style="font-weight:800">Total a devolver</td><td style="text-align:right;font-weight:800;color:var(--bad)">${money(v.total)}</td></tr>
+    </tbody></table></div>
+    <div class="section-head" style="margin-top:18px"><h2>Cómo se devuelve</h2><div class="line"></div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap" id="anulMetodo">
+      <button class="btn ${v.method==='efectivo'?'btn-primary':'btn-ghost'}" data-met="efectivo" style="flex:1">${iconCash()} Efectivo</button>
+      <button class="btn ${v.method==='tarjeta'?'btn-primary':'btn-ghost'}" data-met="tarjeta" style="flex:1">${iconCard()} Tarjeta</button>
+    </div>
+    <div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:8px">
+      Se cobró en <b>${esc(v.method)}</b>. Si devuelves en efectivo, el cajón bajará ${money(v.total)} en el arqueo.
+    </div>
+    <div class="field" style="margin-top:18px"><label>Motivo (obligatorio)</label>
+      <input id="anulMotivo" maxlength="120" placeholder="Ej: se equivocó el pedido"></div>
+    <div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:8px">
+      Es lo que se lee cuando dentro de un mes alguien pregunte por qué faltan ${money(v.total)}.
+    </div>`;
+  document.getElementById("drawerFoot").innerHTML=`
+    <button class="btn btn-bad" id="anulConfirm" style="width:100%">Anular y devolver ${money(v.total)}</button>`;
+  document.getElementById("closeDrawer").onclick=closeDrawer;
+
+  let metodo=v.method;
+  const botones=document.getElementById("anulMetodo").querySelectorAll("[data-met]");
+  botones.forEach(b=>b.onclick=()=>{
+    metodo=b.dataset.met;
+    botones.forEach(x=>{x.classList.toggle("btn-primary",x===b);x.classList.toggle("btn-ghost",x!==b);});
+  });
+  document.getElementById("anulConfirm").onclick=()=>{
+    const motivo=document.getElementById("anulMotivo").value.trim();
+    if(!motivo){toast("Escribe el motivo de la anulación","bad");return;}
+    // Anular es la vía natural del descuadre y del sisar: la autoriza el
+    // responsable con su PIN, no el camarero que está en el turno.
+    const p=prompt("PIN del responsable para autorizar la anulación:");
+    if(p===null)return;
+    if(String(p)!==String(ADMIN.pin)){toast("PIN incorrecto — anulación no autorizada","bad");return;}
+    if(anularVenta(v.id,motivo,metodo))closeDrawer();
+  };
+  openDrawer();
+}
+
+function showCashReport({title,subtitle,sum,from,to,cash,ventas}){
   document.getElementById("drawerHead").innerHTML=`
     <div><div class="dt">${title}</div><div class="ds">${subtitle}</div></div>
     <button class="x" id="closeDrawer">${iconX()}</button>`;
@@ -1164,6 +1301,9 @@ function showCashReport({title,subtitle,sum,from,to,cash}){
       <div class="kpi"><div class="k">Ticket medio</div><div class="v" style="font-size:24px">${money(sum.avg)}</div></div>
       <div class="kpi"><div class="k">Artículos</div><div class="v" style="font-size:24px">${sum.items}</div></div>
     </div>
+    ${sum.anulaciones?`<div style="background:var(--bad-bg);color:var(--bad-tx);border-radius:12px;padding:11px 14px;font-size:13px;font-weight:700;margin-top:12px">
+      ${sum.anulaciones} anulación(es) por ${money(sum.anulado)}. Ya están descontadas del total y del efectivo esperado.
+    </div>`:""}
     <div class="section-head" style="margin-top:20px"><h2>Métodos de pago</h2><div class="line"></div></div>
     <div class="table-wrap"><table class="data"><tbody>${methodRows}</tbody></table></div>
     <div class="section-head" style="margin-top:20px"><h2>Desglose de IVA</h2><div class="line"></div></div>
@@ -1173,10 +1313,22 @@ function showCashReport({title,subtitle,sum,from,to,cash}){
     </tbody></table></div>
     ${cashSec}
     <div class="section-head" style="margin-top:20px"><h2>Productos vendidos</h2><div class="line"></div></div>
-    <div class="table-wrap"><table class="data"><tbody>${prodRows}</tbody></table></div>`;
+    <div class="table-wrap"><table class="data"><tbody>${prodRows}</tbody></table></div>
+    ${ventas&&ventas.length?`
+    <div class="section-head" style="margin-top:20px"><h2>Ventas del periodo</h2><div class="line"></div></div>
+    <div style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:8px">
+      Un cierre Z no se toca. Si hay que devolver una de estas ventas, la anulación
+      se registra en la sesión de hoy, que es cuando sale el dinero del cajón.
+    </div>
+    <div class="table-wrap"><table class="data">
+      <thead><tr><th>Hora</th><th>Mesa</th><th>Art.</th><th>Pago</th><th style="text-align:right">Total</th><th></th></tr></thead>
+      <tbody>${ventas.slice().sort((a,b)=>b.paidAt-a.paidAt).map(s=>filaVenta(s)).join("")}</tbody>
+    </table></div>`:""}`;
   document.getElementById("drawerFoot").innerHTML=`
     <button class="btn btn-ghost" id="printReport" style="width:100%">Imprimir informe</button>`;
   document.getElementById("closeDrawer").onclick=closeDrawer;
+  document.getElementById("drawerBody").querySelectorAll("[data-anular]").forEach(b=>
+    b.onclick=()=>openAnulacion(b.dataset.anular));
   document.getElementById("printReport").onclick=()=>{
     printHTML(reportTicketHTML(title.toUpperCase(),sum,from,to,cash),true);
     toast("Informe enviado a impresión","info");
@@ -1211,6 +1363,7 @@ function reportTicketHTML(title,sum,from,to,cash){
       <tr><td>Tickets</td><td class="amt">${sum.tickets}</td></tr>
       <tr><td>Ticket medio</td><td class="amt">${money(sum.avg)}</td></tr>
       <tr><td>Articulos</td><td class="amt">${sum.items}</td></tr>
+      ${sum.anulaciones?`<tr><td>Anulaciones (${sum.anulaciones})</td><td class="amt">-${money(sum.anulado)}</td></tr>`:""}
     </table>
     <div class="hr"></div>
     <div class="b">PAGOS</div>
@@ -1385,6 +1538,9 @@ function wireView(){
   const bci=document.getElementById("btnCashIn"); if(bci)bci.onclick=()=>openCashMove("in");
   const bco=document.getElementById("btnCashOut"); if(bco)bco.onclick=()=>openCashMove("out");
   const bcsv=document.getElementById("btnCsv"); if(bcsv)bcsv.onclick=exportClosuresCSV;
+  view.querySelectorAll("[data-anular]").forEach(b=>b.onclick=e=>{
+    e.stopPropagation(); openAnulacion(b.dataset.anular);
+  });
   view.querySelectorAll("[data-closure]").forEach(r=>r.onclick=()=>{
     const c=(S.closures||[]).find(x=>x.id===r.dataset.closure);
     if(c)showClosureReport(c);
@@ -1688,7 +1844,7 @@ document.addEventListener("keydown",e=>{
    Acceso: mantener pulsado el logo ~2 s (táctil) o Ctrl+Alt+A.
    PIN por defecto: 1234 (cámbialo en el propio panel)
    ============================================================ */
-const APP_VERSION="2.2.0";
+const APP_VERSION="2.3.0";
 const ADMIN_KEY="vortexpos.admin.v1";
 const dcl=o=>JSON.parse(JSON.stringify(o));
 const ADMIN_DEFAULTS={
@@ -2134,16 +2290,22 @@ function reimprimirFactura(ventaId){
   if(!v){ toast("No encuentro esa venta","bad"); return; }
   if(!v.fiscal||!v.fiscal.qr){ toast("Esa venta todavia no tiene factura registrada","info"); return; }
   const t=(S.tables||[]).find(x=>x.id===v.tableId);
-  printHTML(ticketReceiptHTML(t?t.name:"", v.items, v.method, v.fiscal));
+  printHTML(ticketReceiptHTML(t?t.name:"", v.items, v.method, v.fiscal, v.rectificaA?v:null));
 }
-function ticketReceiptHTML(tableName,items,method,fiscal){
+function ticketReceiptHTML(tableName,items,method,fiscal,anulacion){
   const b=ADMIN.business;
-  const total=items.reduce((s,i)=>s+i.price*i.qty,0);
+  // En una anulación el importe se toma de la contra-venta, no de las líneas:
+  // es el mismo criterio que en anularVenta() y evita descuadres de céntimos.
+  const total=anulacion?anulacion.total:items.reduce((s,i)=>s+i.price*i.qty,0);
   const vr=(parseFloat(b.vat)||0)/100, base=total/(1+vr);
   const rows=items.map(i=>`<tr><td class="qty">${i.qty}×</td><td>${esc(i.name)}</td><td class="amt">${money(i.price*i.qty)}</td></tr>`).join("");
   return `<div class="c b big">${esc(b.name)}</div>
     ${b.ticketHeader?`<div class="c">${esc(b.ticketHeader)}</div>`:""}
     <div class="hr"></div>
+    ${anulacion?`<div class="c b big">ANULACION / DEVOLUCION</div>
+    <div class="c">Anula la venta ${esc(anulacion.rectificaA)}</div>
+    ${anulacion.motivo?`<div class="c">Motivo: ${esc(anulacion.motivo)}</div>`:""}
+    <div class="hr"></div>`:""}
     <div>${esc(tableName)} · ${new Date().toLocaleString("es-ES")}</div>
     <div class="hr"></div>
     <table>${rows}</table>
@@ -2272,9 +2434,24 @@ const FISCAL={
   /* Se llama tras cobrar. No espera respuesta: encola y lanza el envío. */
   encolar(venta){
     if(!CLOUD.cfg()) return;                    // sin nube no hay facturación
-    this.cola.push({record_id:venta.id, importe_total:venta.total,
+    this.cola.push({tipo:"emitir", record_id:venta.id, importe_total:venta.total,
                     descripcion:(venta.items||[]).slice(0,3)
                       .map(i=>i.name).join(", ").slice(0,110) || "Consumicion",
+                    intentos:0});
+    this.guardar();
+    this.enviar();
+  },
+
+  /* Se llama al anular una venta. Solo hay algo que rectificar si la original
+     llegó a facturarse: si el local estaba en modo comandas, no hay factura que
+     dejar sin efecto y aquí no se hace nada. */
+  encolarRectificativa(contra,original){
+    if(!CLOUD.cfg()) return;
+    if(!original || !original.fiscal) return;
+    this.cola.push({tipo:"rect", record_id:contra.id,
+                    rectifica_record_id:original.id,
+                    importe_total:Math.abs(contra.total),
+                    descripcion:("Anulacion "+(contra.motivo||"")).trim().slice(0,110),
                     intentos:0});
     this.guardar();
     this.enviar();
@@ -2289,16 +2466,26 @@ const FISCAL={
     try{
       while(this.cola.length){
         const p=this.cola[0];
+        const rect=p.tipo==="rect";
         let r;
         try{
-          r=await fetch(cfg.url+"/api/device/verifactu/emitir",{
+          r=await fetch(cfg.url+(rect?"/api/device/verifactu/rectificar"
+                                     :"/api/device/verifactu/emitir"),{
             method:"POST",
             headers:{"Content-Type":"application/json","Authorization":"Bearer "+CLOUD.token},
-            body:JSON.stringify({record_id:p.record_id, importe_total:p.importe_total,
-                                 descripcion:p.descripcion})});
+            body:JSON.stringify(rect
+              ? {record_id:p.record_id, rectifica_record_id:p.rectifica_record_id,
+                 importe_total:p.importe_total, descripcion:p.descripcion}
+              : {record_id:p.record_id, importe_total:p.importe_total,
+                 descripcion:p.descripcion})});
         }catch(e){ break; }                     // sin red: se queda en cola, se reintenta
 
-        if(r.status===409){                     // este local no factura: no es un error
+        if(r.status===409){
+          // En una emisión, 409 significa "este local no factura": la cola entera
+          // sobra. En una rectificativa significa que ESA factura original no
+          // existe o quedó en error, y vaciar la cola por eso tiraría las ventas
+          // pendientes de otros tickets. Se descarta solo la que falla.
+          if(rect){ this.cola.shift(); this.guardar(); FISCAL.avisarFallo(p); continue; }
           this.activo=false; this.cola=[]; this.guardar(); break;
         }
         if(r.status===401){ CLOUD.token=null; break; }   // sesión caducada
@@ -2326,8 +2513,13 @@ const FISCAL={
   /* Una factura que no sale tras 8 intentos deja de ser un problema técnico y
      pasa a ser un problema del bar: hay que decírselo, no tragárselo. */
   avisarFallo(p){
-    try{ logErr("verifactu", "No se pudo emitir la factura de la venta "+p.record_id); }catch(e){}
-    toast("⚠ Una venta no se ha podido facturar. Avisa al responsable.","bad");
+    const rect=p.tipo==="rect";
+    try{ logErr("verifactu", (rect
+      ? "No se pudo emitir la rectificativa de la anulación "
+      : "No se pudo emitir la factura de la venta ")+p.record_id); }catch(e){}
+    toast(rect
+      ? "⚠ Una anulación no se ha podido rectificar en Hacienda. Avisa al responsable."
+      : "⚠ Una venta no se ha podido facturar. Avisa al responsable.","bad");
   },
 
   pintarAviso(){

@@ -64,8 +64,15 @@ ok("FALTA-07 · NIF del emisor como campo estructurado",
    "sólo existe ticketHeader, un texto libre opcional")
 
 # Art. 11: registro de facturación de anulación.
+# No basta con que aparezca la palabra "anulación": lo que exige el artículo es
+# que la venta NO se suprima y que quede un registro que la deje sin efecto.
+# Por eso se comprueban las tres piezas: la función, el vínculo a la original y
+# la rectificativa R5 (la que corresponde a una factura simplificada).
 ok("FALTA-08 · registro de anulación (no borrado) de una venta",
-   bool(re.search(r"(anulacion|anulación|registro de anulaci)", TODO, re.I)),
+   bool(re.search(r"function anularVenta\(", APP_HTML))
+   and bool(re.search(r"rectificaA", APP_HTML))
+   and not bool(re.search(r"S\.sales\.splice\(", APP_HTML))
+   and bool(re.search(r'"tipo_factura":\s*"R5"', SRV)),
    "no existe función de anulación ni de devolución")
 
 # Art. 8.3: registro de eventos del sistema.
@@ -160,7 +167,7 @@ ok("Soporta más de un tipo de IVA (p. ej. 10 % en sala y 21 % para llevar)",
    "aunque la app crea mesas de la zona 'Para llevar' (línea 586)")
 
 # C3 · el ticket entregado al cliente, ¿lleva número de factura?
-recibo = re.search(r"function ticketReceiptHTML\([\s\S]{0,1400}?\n\}", APP_HTML).group(0)
+recibo = re.search(r"function ticketReceiptHTML\([\s\S]{0,2600}?\n\}", APP_HTML).group(0)
 ok("El ticket entregado al cliente lleva número (art. 7.1.a RD 1619/2012)",
    bool(re.search(r"(n[ºu]m|invoice|factura\s*n)", recibo, re.I)),
    "ticketReceiptHTML() imprime nombre, fecha, líneas, base, IVA y total. "
