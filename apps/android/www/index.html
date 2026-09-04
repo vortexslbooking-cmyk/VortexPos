@@ -607,6 +607,10 @@ function migrate(s){ // compatibilidad con datos guardados por versiones anterio
   if(typeof s.menuUpdatedAt!=="number")s.menuUpdatedAt=s.seededAt||now();
   if(!s.cloudAcked||typeof s.cloudAcked!=="object")s.cloudAcked={};
   if(!Array.isArray(s.staff))s.staff=[];
+  // Clientes con datos fiscales, para las facturas completas. Solo se rellena
+  // cuando alguien pide factura: un bar no tiene fichero de clientes ni falta
+  // que le hace. Ver CLIENTES más abajo.
+  if(!Array.isArray(s.clients))s.clients=[];
   if(typeof s.currentStaffId!=="string")s.currentStaffId="";
   if(!s.tables.some(t=>t.zone==="Para llevar")){ // venta rápida de mostrador (chiringuito)
     s.tables.push(
@@ -699,6 +703,101 @@ function pendingKitchen(){
 }
 function kitchenAlerts(){ return pendingKitchen().filter(t=>minsSince(t.oldest)>=15).length; }
 
+/* ============================================================
+   CLIENTES Y DATOS FISCALES  (facturas completas)
+   ------------------------------------------------------------
+   Una factura simplificada (el ticket de siempre) no lleva datos del cliente:
+   por eso es simplificada. Una factura completa SÍ, y sin ellos no se puede
+   emitir. Aquí vive el fichero de clientes del local y la comprobación que se
+   hace mientras el camarero teclea.
+
+   OJO: esta validación es para AVISAR EN EL MOMENTO. La que decide es la del
+   servidor (app/fiscal_validacion.py), porque esto es un HTML en una tablet y
+   cualquiera puede saltárselo.
+   ============================================================ */
+const TIPOS_CLIENTE=[["particular","Particular"],["autonomo","Autónomo"],["empresa","Empresa / S.L."]];
+const _LETRAS_NIF="TRWAGMYFPDXBNJZSQVHLCKE";
+
+function nifNorm(v){return String(v||"").toUpperCase().replace(/[^0-9A-Z]/g,"");}
+
+/* Devuelve {ok, clase, motivo}. Mismos algoritmos que la AEAT publica. */
+function nifCheck(valor){
+  const v=nifNorm(valor);
+  if(!v)return{ok:false,clase:"",motivo:"Falta el NIF o CIF."};
+  if(v.length!==9)return{ok:false,clase:"",motivo:`Un NIF o CIF tiene 9 caracteres; este tiene ${v.length}.`};
+  if(/^\d{8}[A-Z]$/.test(v)){
+    const l=_LETRAS_NIF[parseInt(v.slice(0,8),10)%23];
+    return v[8]===l?{ok:true,clase:"nif",motivo:"NIF de persona física."}
+                   :{ok:false,clase:"nif",motivo:`La letra no corresponde: para ${v.slice(0,8)} sería ${l}.`};
+  }
+  if(/^[XYZ]\d{7}[A-Z]$/.test(v)){
+    const n=parseInt("XYZ".indexOf(v[0])+v.slice(1,8),10);
+    return v[8]===_LETRAS_NIF[n%23]?{ok:true,clase:"nie",motivo:"NIE de extranjero residente."}
+                                   :{ok:false,clase:"nie",motivo:"La letra del NIE no corresponde."};
+  }
+  if(/^[A-W]\d{7}[0-9A-J]$/.test(v)){
+    const cuerpo=v.slice(1,8);
+    let par=0,impar=0;
+    for(let i=1;i<cuerpo.length;i+=2)par+=+cuerpo[i];
+    for(let i=0;i<cuerpo.length;i+=2){const d=+cuerpo[i]*2;impar+=Math.floor(d/10)+d%10;}
+    const dig=(10-(par+impar)%10)%10, ctrl=v[8];
+    const inicial=v[0];
+    let ok;
+    if("KPQRSNW".includes(inicial))      ok = ctrl==="JABCDEFGHI"[dig];
+    else if("ABEH".includes(inicial))    ok = ctrl===String(dig);
+    else                                 ok = ctrl===String(dig)||ctrl==="JABCDEFGHI"[dig];
+    return ok?{ok:true,clase:"cif",motivo:"CIF de entidad."}
+             :{ok:false,clase:"cif",motivo:"El dígito de control del CIF no corresponde."};
+  }
+  return{ok:false,clase:"",motivo:"No tiene forma de NIF, NIE ni CIF español."};
+}
+
+/* Todos los fallos de golpe, no el primero: con gente esperando en la barra,
+   corregir de uno en uno es la forma más rápida de que dejen de usar esto. */
+function clienteFallos(c){
+  c=c||{};
+  const f=[];
+  if(!String(c.nombre||"").trim())    f.push("Falta el nombre o la razón social.");
+  if(!String(c.nif||"").trim())       f.push("Falta el NIF o CIF.");
+  else{const r=nifCheck(c.nif); if(!r.ok)f.push(r.motivo);}
+  if(!String(c.direccion||"").trim()) f.push("Falta la dirección fiscal.");
+  if(!String(c.cp||"").trim())        f.push("Falta el código postal.");
+  else if((c.pais||"ES").toUpperCase()==="ES"){
+    const cp=nifNorm(c.cp);
+    if(!/^\d{5}$/.test(cp))                       f.push("El código postal debe tener 5 dígitos.");
+    else if(+cp.slice(0,2)<1||+cp.slice(0,2)>52)  f.push(`Los dos primeros dígitos del CP (${cp.slice(0,2)}) no son una provincia española.`);
+  }
+  if(!String(c.municipio||"").trim()) f.push("Falta el municipio.");
+  const em=String(c.email||"").trim();
+  if(em&&!/^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$/.test(em)) f.push("El correo no tiene un formato válido.");
+  return f;
+}
+
+function clienteBuscar(q){
+  q=nifNorm(q)||String(q||"").trim().toLowerCase();
+  if(!q)return (S.clients||[]).slice(0,25);
+  return (S.clients||[]).filter(c=>
+    nifNorm(c.nif).includes(nifNorm(q)) ||
+    String(c.nombre||"").toLowerCase().includes(String(q).toLowerCase())).slice(0,25);
+}
+
+function clienteGuardar(c){
+  const fallos=clienteFallos(c);
+  if(fallos.length)return{ok:false,fallos};
+  const nif=nifNorm(c.nif);
+  const ya=(S.clients||[]).find(x=>nifNorm(x.nif)===nif);
+  const ficha={id:ya?ya.id:("cli_"+Math.random().toString(36).slice(2,10)),
+    nombre:String(c.nombre).trim(), nif, tipo:c.tipo||"empresa",
+    direccion:String(c.direccion).trim(), cp:nifNorm(c.cp),
+    municipio:String(c.municipio).trim(), provincia:String(c.provincia||"").trim(),
+    pais:(c.pais||"ES").toUpperCase().slice(0,2),
+    email:String(c.email||"").trim(), telefono:String(c.telefono||"").trim(),
+    creadoEn:ya?ya.creadoEn:now()};
+  if(ya)Object.assign(ya,ficha); else S.clients.push(ficha);
+  persist();
+  return{ok:true,cliente:ficha,actualizado:!!ya};
+}
+
 /* ---------------- Router ---------------- */
 const VIEWS=[
   {id:"sala",label:"Sala",title:"Sala",sub:"Plano de mesas en tiempo real",icon:iconGrid},
@@ -706,6 +805,7 @@ const VIEWS=[
   {id:"reservas",label:"Reservas",title:"Reservas",sub:"Próximas entradas y asignación de mesa",icon:iconCal},
   {id:"personal",label:"Personal",title:"Camareros",sub:"Equipo del local y cambio de turno",icon:iconStaff},
   {id:"caja",label:"Caja",title:"Caja",sub:"Cuentas abiertas, arqueo y cierre de caja",icon:iconCard},
+  {id:"facturas",label:"Facturas",title:"Facturas emitidas",sub:"Facturas completas, con sus datos fiscales",icon:iconBook},
 ];
 let current="sala";
 
@@ -751,6 +851,7 @@ function render(){
   else if(current==="reservas")view.innerHTML=renderReservas();
   else if(current==="personal")view.innerHTML=renderPersonal();
   else if(current==="caja")view.innerHTML=renderCaja();
+  else if(current==="facturas")view.innerHTML=renderFacturas();
   wireView();
 }
 
@@ -1538,6 +1639,22 @@ function wireView(){
   const bci=document.getElementById("btnCashIn"); if(bci)bci.onclick=()=>openCashMove("in");
   const bco=document.getElementById("btnCashOut"); if(bco)bco.onclick=()=>openCashMove("out");
   const bcsv=document.getElementById("btnCsv"); if(bcsv)bcsv.onclick=exportClosuresCSV;
+  // facturas: búsqueda, filtros y acciones de cada fila
+  const fq=document.getElementById("fQ");
+  if(fq){
+    let tq=null;
+    fq.oninput=()=>{ clearTimeout(tq); tq=setTimeout(()=>{fFiltro.q=fq.value;render();},250); };
+    const fd=document.getElementById("fDesde"), fh=document.getElementById("fHasta"), fs=document.getElementById("fSerie");
+    if(fd)fd.onchange=()=>{fFiltro.desde=fd.value;render();};
+    if(fh)fh.onchange=()=>{fFiltro.hasta=fh.value;render();};
+    if(fs)fs.onchange=()=>{fFiltro.serie=fs.value;render();};
+    const fl=document.getElementById("fLimpiar");
+    if(fl)fl.onclick=()=>{fFiltro={q:"",desde:"",hasta:"",serie:""};render();};
+    view.querySelectorAll("[data-fimp]").forEach(b=>b.onclick=()=>{
+      const v=facturasEmitidas().find(x=>x.id===b.dataset.fimp); if(v)imprimirFactura(v);});
+    view.querySelectorAll("[data-fver]").forEach(b=>b.onclick=()=>{
+      const v=facturasEmitidas().find(x=>x.id===b.dataset.fver); if(v)verFactura(v);});
+  }
   view.querySelectorAll("[data-anular]").forEach(b=>b.onclick=e=>{
     e.stopPropagation(); openAnulacion(b.dataset.anular);
   });
@@ -1644,7 +1761,14 @@ function renderComanda(){
 }
 
 function addItem(pid){
-  if(!prodById(pid))return;
+  const p=prodById(pid);
+  if(!p)return;
+  // Un producto agotado no entra en la comanda, aunque el botón siga en
+  // pantalla. La interfaz ya lo oculta, pero eso no basta: el proveedor puede
+  // marcar "agotado" desde la nube mientras el camarero tiene el cajón abierto,
+  // y entonces la pantalla está pintada con la carta de hace un minuto.
+  // Cobrar algo que no hay obliga a devolver el dinero delante del cliente.
+  if(p.off){ toast(`"${p.name}" está agotado`,"bad"); return; }
   const o=tableOrder(S.tables.find(x=>x.id===activeTableId));
   // si ya existe una línea 'nuevo' del mismo producto sin nota, incrementa
   const ex=o.items.find(i=>i.pid===pid&&i.status==="nuevo"&&!i.notes);
@@ -1770,6 +1894,34 @@ function openBill(tid){
   renderBill();
   openDrawer();
 }
+/* Documento que se va a emitir en este cobro. "simple" es el ticket de
+   siempre y es SIEMPRE el valor por defecto: quien no pide factura no debe
+   notar ningún cambio. */
+let billDocType="simple";
+let billCliente=null;
+
+/* Reparto de una cuenta entre comensales, al céntimo.
+
+   El problema: 10 € entre 3 no da una cifra. Enseñar 3,33 € y que el camarero
+   cobre tres veces esa cantidad son 9,99 € y falta un céntimo en el cajón; con
+   6 comensales a 1,67 € sobran dos. Parece una tontería y lo es una vez, pero
+   un chiringuito divide cuentas cincuenta veces al día y al cierre nadie sabe
+   de dónde sale el descuadre.
+
+   La solución es la de toda la vida: se reparte en céntimos enteros y el resto
+   lo asumen los primeros, un céntimo cada uno. La suma cuadra SIEMPRE, por
+   construcción, y se le dice al camarero quién paga de más para que no tenga
+   que adivinarlo. */
+function dividirCuenta(total,n){
+  n=Math.max(1,Math.round(n)||1);
+  const signo=total<0?-1:1;
+  const centimos=Math.round(Math.abs(total)*100);
+  const base=Math.floor(centimos/n), resto=centimos-base*n;
+  const partes=[];
+  for(let i=0;i<n;i++)partes.push(signo*(base+(i<resto?1:0))/100);
+  return partes;
+}
+
 function renderBill(){
   const t=S.tables.find(x=>x.id===activeTableId); const o=tableOrder(t);
   const total=orderTotal(o);
@@ -1780,41 +1932,200 @@ function renderBill(){
       <span class="onm">${i.qty}× ${esc(i.name)}${i.notes?` <span style="color:var(--warn);font-size:12px">(${esc(i.notes)})</span>`:''}</span>
       <span class="op">${money(i.price*i.qty)}</span></div></div>`).join("");
   const diners=[1,2,3,4,5,6].map(n=>`<button class="${n===billDiners?'active':''}" data-diner="${n}">${n}</button>`).join("");
-  const per=total/billDiners;
+  const partes=dividirCuenta(total,billDiners);
+  const per=partes[0];
+  const iguales=partes.every(p=>p===partes[0]);
+  const cuantosMas=partes.filter(p=>p===partes[0]).length;
   document.getElementById("drawerBody").innerHTML=`
     <div class="section-head"><h2>Detalle</h2><div class="line"></div></div>
     <div class="order-lines">${lines}</div>
     <div class="section-head" style="margin-top:22px"><h2>Dividir cuenta</h2><div class="line"></div></div>
     <div class="split-diners">${diners}</div>
-    ${billDiners>1?`<div class="split-result"><div class="per">${money(per)}</div><div class="lbl">por comensal (${billDiners} personas)</div></div>`:''}`;
+    ${billDiners>1?`<div class="split-result"><div class="per">${money(per)}</div><div class="lbl">${
+        iguales
+          ? `por comensal (${billDiners} personas)`
+          : `${cuantosMas} ${cuantosMas===1?"paga":"pagan"} ${money(partes[0])} y ${billDiners-cuantosMas} ${billDiners-cuantosMas===1?"paga":"pagan"} ${money(partes[billDiners-1])}`
+      }</div></div>`:''}`;
   const vr=(parseFloat(ADMIN.business.vat)||0)/100, base=total/(1+vr);
+  // El selector de documento solo aparece si el local tiene la facturación
+  // activa. Un bar en modo comandas no debe ver una opción que no puede usar.
+  const puedeFacturar = (typeof FISCAL!=="undefined") && FISCAL.activo;
+  const chip = billCliente
+    ? `<div class="pill" style="margin-bottom:10px;display:flex;justify-content:space-between;gap:8px;align-items:center">
+         <span><b>${esc(billCliente.nombre)}</b> · ${esc(billCliente.nif)}</span>
+         <button class="btn btn-ghost btn-sm" id="quitaCliente">Cambiar</button>
+       </div>`
+    : "";
+  const selector = puedeFacturar ? `
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn ${billDocType==='simple'?'btn-dark':'btn-ghost'} btn-sm" id="docSimple" style="flex:1">Ticket</button>
+      <button class="btn ${billDocType==='completa'?'btn-dark':'btn-ghost'} btn-sm" id="docCompleta" style="flex:1">Factura completa</button>
+    </div>
+    ${billDocType==='completa'?(chip||`<div class="pill" style="margin-bottom:10px;color:var(--muted)">Se pedirá el cliente al cobrar</div>`):""}` : "";
   document.getElementById("drawerFoot").innerHTML=`
     <div class="total-row"><span class="tl">Base imponible</span><span class="tv">${money(base)}</span></div>
     <div class="total-row"><span class="tl">IVA (${ADMIN.business.vat}%)</span><span class="tv">${money(total-base)}</span></div>
     <div class="total-row grand"><span class="tl">Total</span><span class="tv">${money(total)}</span></div>
+    ${selector}
     <div style="display:flex;gap:10px">
       <button class="btn btn-ghost" id="payCash" style="flex:1">${iconCash()} Efectivo</button>
       <button class="btn btn-primary" id="payCard" style="flex:1">${iconCard()} Tarjeta</button>
     </div>`;
   document.getElementById("closeDrawer").onclick=closeDrawer;
   document.getElementById("drawerBody").querySelectorAll("[data-diner]").forEach(b=>b.onclick=()=>{billDiners=parseInt(b.dataset.diner);renderBill();});
-  document.getElementById("payCash").onclick=()=>charge("efectivo");
-  document.getElementById("payCard").onclick=()=>charge("tarjeta");
+  const bS=document.getElementById("docSimple"), bC=document.getElementById("docCompleta");
+  if(bS)bS.onclick=()=>{billDocType="simple";billCliente=null;renderBill();};
+  if(bC)bC.onclick=()=>{billDocType="completa";renderBill();};
+  const bQ=document.getElementById("quitaCliente");
+  if(bQ)bQ.onclick=()=>{billCliente=null;renderBill();};
+  document.getElementById("payCash").onclick=()=>cobrarSegunDocumento("efectivo");
+  document.getElementById("payCard").onclick=()=>cobrarSegunDocumento("tarjeta");
 }
-function charge(method){
+
+/* Punto único de decisión al pulsar Efectivo o Tarjeta.
+
+   Con "Ticket" llama a charge() tal cual, exactamente como antes: el camino
+   que ya funcionaba no cambia ni una línea. Con "Factura completa" exige un
+   cliente ANTES de cobrar, porque una factura sin destinatario no es una
+   factura completa y despues del cobro ya es tarde para pedir el NIF. */
+function cobrarSegunDocumento(method){
+  if(billDocType!=="completa")return charge(method);
+  if(billCliente)return charge(method,billCliente);
+  abrirSelectorCliente(c=>{ billCliente=c; charge(method,c); });
+}
+/* ============================================================
+   SELECTOR DE CLIENTE  (solo para factura completa)
+   Reutiliza el cajón lateral, igual que hace el arqueo: no es una pantalla
+   nueva, es el mismo sitio donde el camarero ya está cobrando.
+   ============================================================ */
+function abrirSelectorCliente(alElegir){
+  let creando=false, borrador={pais:"ES",tipo:"empresa"};
+
+  function pinta(filtro){
+    document.getElementById("drawerHead").innerHTML=`
+      <div><div class="dt">Factura completa</div><div class="ds">${creando?"Datos fiscales del cliente":"¿A nombre de quién?"}</div></div>
+      <button class="x" id="closeDrawer">${iconX()}</button>`;
+
+    if(!creando){
+      const lista=clienteBuscar(filtro||"");
+      const filas=lista.map(c=>`
+        <div class="oline" style="cursor:pointer" data-cli="${esc(c.id)}"><div class="top">
+          <span class="onm"><b>${esc(c.nombre)}</b><br><span style="color:var(--muted);font-size:12px">${esc(c.nif)} · ${esc(c.municipio||"")}</span></span>
+          <span class="op">${esc((TIPOS_CLIENTE.find(t=>t[0]===c.tipo)||[,"—"])[1])}</span>
+        </div></div>`).join("")
+        || `<div class="empty"><p>${(S.clients||[]).length?"Ningún cliente coincide con esa búsqueda.":"Todavía no hay clientes guardados. Crea el primero."}</p></div>`;
+      document.getElementById("drawerBody").innerHTML=`
+        <input id="cliBuscar" placeholder="Buscar por nombre o NIF/CIF" value="${esc(filtro||"")}"
+               style="width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);font-size:15px;margin-bottom:12px">
+        <div class="order-lines">${filas}</div>`;
+      document.getElementById("drawerFoot").innerHTML=`
+        <button class="btn btn-primary" id="cliNuevo" style="width:100%">${iconPlus()} Cliente nuevo</button>
+        <button class="btn btn-ghost" id="cliCancelar" style="width:100%;margin-top:8px">Cancelar</button>`;
+      const bus=document.getElementById("cliBuscar");
+      bus.oninput=()=>pinta(bus.value);
+      document.getElementById("drawerBody").querySelectorAll("[data-cli]").forEach(el=>{
+        el.onclick=()=>{
+          const c=(S.clients||[]).find(x=>x.id===el.dataset.cli);
+          if(c){ closeDrawer(); alElegir(c); }
+        };
+      });
+      document.getElementById("cliNuevo").onclick=()=>{creando=true;pinta();};
+      document.getElementById("cliCancelar").onclick=()=>{closeDrawer();};
+    } else {
+      const campo=(id,etq,val,extra="")=>`
+        <label style="display:block;margin-bottom:10px">
+          <span style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px">${etq}</span>
+          <input id="${id}" value="${esc(val||"")}" ${extra}
+                 style="width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);font-size:15px">
+        </label>`;
+      const tipos=TIPOS_CLIENTE.map(([v,n])=>`<option value="${v}"${borrador.tipo===v?" selected":""}>${n}</option>`).join("");
+      document.getElementById("drawerBody").innerHTML=`
+        <label style="display:block;margin-bottom:10px">
+          <span style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px">Tipo de cliente</span>
+          <select id="cTipo" style="width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);font-size:15px">${tipos}</select>
+        </label>
+        ${campo("cNombre","Nombre o razón social",borrador.nombre)}
+        ${campo("cNif","NIF / CIF",borrador.nif,'autocapitalize="characters"')}
+        <div id="cNifAviso" style="font-size:12px;font-weight:700;margin:-6px 0 10px"></div>
+        ${campo("cDir","Dirección fiscal",borrador.direccion)}
+        <div style="display:flex;gap:10px">
+          <div style="width:110px">${campo("cCp","Código postal",borrador.cp,'inputmode="numeric"')}</div>
+          <div style="flex:1">${campo("cMun","Municipio",borrador.municipio)}</div>
+        </div>
+        ${campo("cProv","Provincia (opcional)",borrador.provincia)}
+        ${campo("cEmail","Correo (opcional)",borrador.email,'inputmode="email"')}
+        ${campo("cTel","Teléfono (opcional)",borrador.telefono,'inputmode="tel"')}
+        <div id="cFallos" style="color:var(--bad);font-size:13px;font-weight:700;line-height:1.6"></div>`;
+      document.getElementById("drawerFoot").innerHTML=`
+        <button class="btn btn-primary" id="cGuardar" style="width:100%">${iconCheck()} Guardar y facturar</button>
+        <button class="btn btn-ghost" id="cVolver" style="width:100%;margin-top:8px">Volver a la lista</button>`;
+
+      // Aviso del NIF mientras se teclea: el fallo aparece en el momento, no
+      // cuando el cliente ya está esperando la factura.
+      const nif=document.getElementById("cNif"), av=document.getElementById("cNifAviso");
+      const revisa=()=>{
+        const v=nif.value.trim();
+        if(!v){av.textContent="";return;}
+        const r=nifCheck(v);
+        av.textContent=r.ok?("✓ "+r.motivo):("✗ "+r.motivo);
+        av.style.color=r.ok?"var(--ok)":"var(--bad)";
+      };
+      nif.oninput=revisa; revisa();
+
+      const recoge=()=>({tipo:val("cTipo")||document.getElementById("cTipo").value,
+        nombre:val("cNombre"),nif:val("cNif"),direccion:val("cDir"),cp:val("cCp"),
+        municipio:val("cMun"),provincia:val("cProv"),email:val("cEmail"),
+        telefono:val("cTel"),pais:"ES"});
+      document.getElementById("cGuardar").onclick=()=>{
+        borrador=recoge();
+        const r=clienteGuardar(borrador);
+        if(!r.ok){
+          document.getElementById("cFallos").innerHTML=r.fallos.map(f=>"· "+esc(f)).join("<br>");
+          toast("Faltan datos para poder facturar","bad");
+          return;
+        }
+        toast(r.actualizado?"Cliente actualizado":"Cliente guardado","ok");
+        closeDrawer(); alElegir(r.cliente);
+      };
+      document.getElementById("cVolver").onclick=()=>{borrador=recoge();creando=false;pinta();};
+    }
+    document.getElementById("closeDrawer").onclick=closeDrawer;
+  }
+
+  pinta("");
+  openDrawer();
+}
+
+function charge(method,cliente){
   const t=S.tables.find(x=>x.id===activeTableId);
   // doble toque durante la animación del cajón: el primer cobro ya cerró la mesa
   if(!t){toast("Esa cuenta ya se ha cobrado","info");closeDrawer();return;}
   const o=tableOrder(t);
   if(!o||!o.items.length){toast("La comanda está vacía — nada que cobrar","bad");return;}
   const s=sale(t.id,method,now(),o.items.map(i=>({...i})));
+  // El cliente se guarda CON la venta. Así la factura se puede reintentar,
+  // reimprimir o consultar meses después sin depender de que la ficha del
+  // cliente siga existiendo ni de que nadie la haya editado por medio.
+  if(cliente){
+    s.cliente={...cliente};
+    s.docTipo="F1";
+    const b=ADMIN.business||{};
+    s.emisor={nombre:b.name||"", razonSocial:b.razonSocial||b.name||"", nif:b.nif||"",
+              direccion:b.direccion||"", cp:b.cp||"", municipio:b.municipio||"",
+              provincia:b.provincia||""};
+  }
   S.sales.push(s);
   if(ADMIN.printer.enabled&&ADMIN.printer.receiptOnCharge)printHTML(ticketReceiptHTML(t.name,s.items,method));
   delete S.orders[t.orderId]; t.orderId=null; t.status="free";
   const guardado=persist();
   closeDrawer(); current="caja"; render();
   if(typeof CLOUD!=="undefined")CLOUD.sync(); // envía la venta a la nube (si está configurada)
-  if(typeof FISCAL!=="undefined")FISCAL.encolar(s); // factura VeriFactu (si el local la tiene activa)
+  // Una venta con cliente va como factura COMPLETA (F1); el resto, como hasta
+  // ahora. La cola es la misma: si no hay red, se reintenta igual.
+  if(typeof FISCAL!=="undefined"){
+    if(s.cliente)FISCAL.encolarCompleta(s); else FISCAL.encolar(s);
+  }
+  billDocType="simple"; billCliente=null;   // el siguiente cobro empieza limpio
   if(guardado){toast(`Cobrado ${money(s.total)} · ${method}`,"ok");return;}
   // Un cobro sin guardar no puede pasar como un cobro normal. La venta se queda en
   // memoria y en la cola de reintento: es un cambio aditivo, no descuadra nada.
@@ -1844,13 +2155,16 @@ document.addEventListener("keydown",e=>{
    Acceso: mantener pulsado el logo ~2 s (táctil) o Ctrl+Alt+A.
    PIN por defecto: 1234 (cámbialo en el propio panel)
    ============================================================ */
-const APP_VERSION="2.3.0";
+const APP_VERSION="2.4.0";
 const ADMIN_KEY="vortexpos.admin.v1";
 const dcl=o=>JSON.parse(JSON.stringify(o));
 const ADMIN_DEFAULTS={
   pin:"1234",
   client:{name:"Cliente demo",id:"VTX-0001",plan:"Pro",notes:""},
-  business:{name:"vortexPOS Demo",ticketHeader:"",ticketFooter:"Gracias por su visita",vat:10},
+  business:{name:"vortexPOS Demo",ticketHeader:"",ticketFooter:"Gracias por su visita",vat:10,
+    // Datos fiscales del local. Solo hacen falta para las FACTURAS COMPLETAS;
+    // el ticket de siempre funciona sin ellos, como hasta ahora.
+    razonSocial:"",nif:"",direccion:"",cp:"",municipio:"",provincia:""},
   modules:{cocina:true,reservas:true,caja:true},
   printer:{enabled:false,autoOnSend:true,receiptOnCharge:false,width:80,copies:1},
   cloud:{url:"",licenseKey:""},  // vortexPOS Cloud (Fase 2): vacío = 100% local
@@ -1869,7 +2183,7 @@ function loadAdmin(){
       const a=JSON.parse(raw);
       const merged={...dcl(ADMIN_DEFAULTS),...a,
         client:{...ADMIN_DEFAULTS.client,...(a.client||{})},
-        business:{...ADMIN_DEFAULTS.business,...(a.business||{})},
+        business:{...ADMIN_DEFAULTS.business,...(a.business||{})},   // los campos fiscales nuevos entran vacíos, sin tocar lo guardado
         modules:{...ADMIN_DEFAULTS.modules,...(a.modules||{})},
         printer:{...ADMIN_DEFAULTS.printer,...(a.printer||{})},
         cloud:{...ADMIN_DEFAULTS.cloud,...(a.cloud||{})},
@@ -1906,7 +2220,114 @@ if(_mqDark){
   if(_mqDark.addEventListener) _mqDark.addEventListener("change", onChange);
   else if(_mqDark.addListener) _mqDark.addListener(onChange);
 }
-function moduleOn(viewId){return viewId==="sala"||ADMIN.modules[viewId]!==false;}
+function moduleOn(viewId){
+  // La pestaña de facturas solo aparece si el local factura de verdad o si ya
+  // tiene alguna emitida. Un bar en modo comandas no debe ver una pestaña
+  // siempre vacía: molesta y hace pensar que algo no funciona.
+  if(viewId==="facturas"){
+    if(ADMIN.modules.facturas===false)return false;
+    return ((typeof FISCAL!=="undefined"&&FISCAL.activo)||facturasEmitidas().length>0);
+  }
+  return viewId==="sala"||ADMIN.modules[viewId]!==false;
+}
+
+/* ============================================================
+   HISTORIAL DE FACTURAS COMPLETAS
+   ------------------------------------------------------------
+   Se construye a partir de las ventas, que es donde vive el dato. No hay una
+   segunda lista que mantener sincronizada: una factura ES una venta con
+   cliente, y así las dos no pueden discrepar nunca.
+
+   Incluye la sesión abierta y los cierres Z ya archivados, porque a los tres
+   meses la factura que te reclaman es la de marzo.
+   ============================================================ */
+function facturasEmitidas(){
+  const out=[];
+  (S.sales||[]).forEach(v=>{ if(v.cliente)out.push(v); });
+  (S.closures||[]).forEach(c=>{ (c.ventas||[]).forEach(v=>{ if(v.cliente)out.push(v); }); });
+  return out.sort((a,b)=>(b.ts||0)-(a.ts||0));
+}
+
+let fFiltro={q:"",desde:"",hasta:"",serie:""};
+
+function renderFacturas(){
+  const todas=facturasEmitidas();
+  const series=[...new Set(todas.map(v=>(v.fiscal||{}).serie).filter(Boolean))];
+  const q=(fFiltro.q||"").toLowerCase().trim();
+  const lista=todas.filter(v=>{
+    const f=v.fiscal||{}, c=v.cliente||{};
+    if(fFiltro.serie&&f.serie!==fFiltro.serie)return false;
+    if(fFiltro.desde&&v.ts<new Date(fFiltro.desde+"T00:00:00").getTime())return false;
+    if(fFiltro.hasta&&v.ts>new Date(fFiltro.hasta+"T23:59:59").getTime())return false;
+    if(!q)return true;
+    return [c.nombre,c.nif,f.numero,(f.serie||"")+"-"+(f.numero||"")]
+      .filter(Boolean).some(x=>String(x).toLowerCase().includes(q))
+      || nifNorm(c.nif).includes(nifNorm(q));
+  });
+  const filas=lista.map(v=>{
+    const f=v.fiscal||{}, c=v.cliente||{};
+    const num=f.numero?`${esc(f.serie||"")}-${esc(f.numero)}`:`<span style="color:var(--warn)">pendiente</span>`;
+    return `<tr>
+      <td style="font-weight:800;white-space:nowrap">${num}</td>
+      <td style="white-space:nowrap">${fmtDate(v.ts)}</td>
+      <td>${esc(c.nombre||"")}<div style="font-size:12px;color:var(--muted)">${esc(c.nif||"")}</div></td>
+      <td style="text-align:right;font-weight:800">${money(v.total)}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" data-fver="${esc(v.id)}">Ver</button>
+        <button class="btn btn-dark btn-sm" data-fimp="${esc(v.id)}">PDF</button>
+      </td></tr>`;
+  }).join("");
+  const opts=series.map(x=>`<option value="${esc(x)}"${fFiltro.serie===x?" selected":""}>${esc(x)}</option>`).join("");
+  return `
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+    <div style="flex:1;min-width:200px">
+      <label style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px">Buscar</label>
+      <input id="fQ" value="${esc(fFiltro.q)}" placeholder="Nº de factura, cliente o NIF/CIF"
+             style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);font-size:15px"></div>
+    <div><label style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px">Desde</label>
+      <input type="date" id="fDesde" value="${esc(fFiltro.desde)}" style="padding:10px;border-radius:10px;border:1px solid var(--line)"></div>
+    <div><label style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px">Hasta</label>
+      <input type="date" id="fHasta" value="${esc(fFiltro.hasta)}" style="padding:10px;border-radius:10px;border:1px solid var(--line)"></div>
+    ${series.length>1?`<div><label style="display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px">Serie</label>
+      <select id="fSerie" style="padding:10px;border-radius:10px;border:1px solid var(--line)"><option value="">Todas</option>${opts}</select></div>`:""}
+    <button class="btn btn-ghost btn-sm" id="fLimpiar">Limpiar</button>
+  </div>
+  <div class="pill" style="margin-bottom:12px">${lista.length} de ${todas.length} facturas · ${money(lista.reduce((n,v)=>n+v.total,0))}</div>
+  ${lista.length?`<div class="table-wrap"><table class="data"><thead>
+      <tr><th>Número</th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Total</th><th></th></tr>
+    </thead><tbody>${filas}</tbody></table></div>`
+   :emptyState(iconBook(),todas.length?"Ninguna factura coincide con el filtro.":"Todavía no se ha emitido ninguna factura completa. Se emiten al cobrar, eligiendo «Factura completa».")}
+  <div class="adm-diag" style="margin-top:16px">Una factura emitida <b>no se borra</b>. Si hay que dejarla
+  sin efecto se anula la venta desde Caja, y eso genera una rectificativa que también queda registrada.</div>`;
+}
+
+/* Detalle de una factura. Solo lectura: aquí no se edita ni se borra nada. */
+function verFactura(v){
+  const f=v.fiscal||{}, c=v.cliente||{}, des=desgloseDeVenta(v);
+  document.getElementById("drawerHead").innerHTML=`
+    <div><div class="dt">Factura ${esc((f.serie||"")+"-"+(f.numero||"(pendiente)"))}</div>
+    <div class="ds">${fmtDate(v.ts)} · ${esc(v.method||"")}</div></div>
+    <button class="x" id="closeDrawer">${iconX()}</button>`;
+  const lineas=(v.items||[]).map(i=>`<div class="oline"><div class="top">
+      <span class="onm">${i.qty}× ${esc(i.name)}</span>
+      <span class="op">${money(i.price*i.qty)}</span></div></div>`).join("");
+  const iva=des.map(d=>`<div class="total-row"><span class="tl">Base ${d.tipo}%</span><span class="tv">${money(d.base)}</span></div>
+    <div class="total-row"><span class="tl">IVA ${d.tipo}%</span><span class="tv">${money(d.cuota)}</span></div>`).join("");
+  document.getElementById("drawerBody").innerHTML=`
+    <div class="section-head"><h2>Cliente</h2><div class="line"></div></div>
+    <div class="pill" style="display:block;line-height:1.6">
+      <b>${esc(c.nombre||"")}</b><br>${esc(c.nif||"")}<br>
+      ${esc(c.direccion||"")}<br>${esc([c.cp,c.municipio,c.provincia].filter(Boolean).join(" · "))}
+    </div>
+    <div class="section-head" style="margin-top:20px"><h2>Detalle</h2><div class="line"></div></div>
+    <div class="order-lines">${lineas}</div>`;
+  document.getElementById("drawerFoot").innerHTML=`${iva}
+    <div class="total-row grand"><span class="tl">Total</span><span class="tv">${money(v.total)}</span></div>
+    <button class="btn btn-primary" id="fPdf" style="width:100%">${iconPrinter()} Imprimir o guardar en PDF</button>`;
+  document.getElementById("closeDrawer").onclick=closeDrawer;
+  document.getElementById("fPdf").onclick=()=>imprimirFactura(v);
+  openDrawer();
+}
 function applyAdmin(){
   document.title=(ADMIN.business.name||"vortexPOS")+" — vortexPOS";
   applyTheme();
@@ -2007,6 +2428,19 @@ function openAdmin(){
         <div class="adm-field"><label>Cabecera del ticket</label><input id="admTHead" value="${esc(a.business.ticketHeader)}" placeholder="Dirección, CIF, teléfono…"></div>
         <div class="adm-field"><label>Pie del ticket</label><input id="admTFoot" value="${esc(a.business.ticketFooter)}"></div>
       </div>
+    </div>
+    <div class="adm-sec"><h3>${iconCard()} Datos fiscales del local</h3>
+      <div class="adm-grid">
+        <div class="adm-field"><label>Razón social</label><input id="admRazon" value="${esc(a.business.razonSocial||"")}" placeholder="Bar Ejemplo S.L. o nombre y apellidos"></div>
+        <div class="adm-field"><label>NIF / CIF</label><input id="admNif" value="${esc(a.business.nif||"")}" placeholder="B12345674"></div>
+        <div class="adm-field"><label>Dirección fiscal</label><input id="admDir" value="${esc(a.business.direccion||"")}" placeholder="C/ Ejemplo, 12"></div>
+        <div class="adm-field"><label>Código postal</label><input id="admCp" value="${esc(a.business.cp||"")}" placeholder="29700"></div>
+        <div class="adm-field"><label>Municipio</label><input id="admMun" value="${esc(a.business.municipio||"")}" placeholder="Vélez-Málaga"></div>
+        <div class="adm-field"><label>Provincia</label><input id="admProv" value="${esc(a.business.provincia||"")}" placeholder="Málaga"></div>
+      </div>
+      <div class="adm-diag">Solo se usan en las <b>facturas completas</b>, donde la ley obliga a
+      identificar a quien factura. Los tickets de siempre no los necesitan y siguen
+      funcionando igual aunque esto esté vacío.</div>
     </div>
     <div class="adm-sec"><h3>${iconBook()} Carta y precios</h3>
       <div id="admCartaBox">${admCartaHTML()}</div>
@@ -2149,7 +2583,10 @@ function saveAdmin(){
     return;
   }
   ADMIN.client={name:g("admClientName").value.trim(),id:g("admClientId").value.trim(),plan:g("admPlan").value,notes:g("admNotes").value.trim()};
-  ADMIN.business={name:g("admBizName").value.trim()||"vortexPOS",ticketHeader:g("admTHead").value.trim(),ticketFooter:g("admTFoot").value.trim(),vat:clamp(parseFloat(g("admVat").value)||0,0,30)};
+  ADMIN.business={name:g("admBizName").value.trim()||"vortexPOS",ticketHeader:g("admTHead").value.trim(),ticketFooter:g("admTFoot").value.trim(),vat:clamp(parseFloat(g("admVat").value)||0,0,30),
+    razonSocial:(g("admRazon")||{value:""}).value.trim(), nif:nifNorm((g("admNif")||{value:""}).value),
+    direccion:(g("admDir")||{value:""}).value.trim(), cp:(g("admCp")||{value:""}).value.trim(),
+    municipio:(g("admMun")||{value:""}).value.trim(), provincia:(g("admProv")||{value:""}).value.trim()};
   ADMIN.modules={cocina:g("admModCocina").checked,reservas:g("admModReservas").checked,caja:g("admModCaja").checked};
   ADMIN.printer={enabled:g("admPrnOn").checked,autoOnSend:g("admPrnAuto").checked,receiptOnCharge:g("admPrnReceipt").checked,width:parseInt(g("admPrnWidth").value)||80,copies:clamp(parseInt(g("admPrnCopies").value)||1,1,3)};
   ADMIN.cloud={url:g("admCloudUrl").value.trim().replace(/\/$/,""),licenseKey:g("admCloudLic").value.trim()};
@@ -2252,9 +2689,174 @@ function printHTML(html,force){
     setTimeout(()=>f.remove(),2000);
   },80);
 }
+/* ============================================================
+   FACTURA COMPLETA EN A4
+   ------------------------------------------------------------
+   No sale por la impresora de tickets: una factura completa lleva los datos
+   fiscales de las dos partes y el desglose de IVA, y en 80 mm de papel térmico
+   no cabe ni se puede archivar. Va a A4, por la impresora normal o "Guardar
+   como PDF" desde el propio diálogo del navegador, que es como lo hace todo el
+   mundo y no obliga a instalar nada.
+
+   Se imprime SIEMPRE con `force`: aquí no manda el ajuste de la impresora de
+   comandas, porque el cliente está esperando su factura.
+   ============================================================ */
+function imprimirA4(html,titulo){
+  const f=document.createElement("iframe");
+  f.setAttribute("aria-hidden","true");
+  f.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+  document.body.appendChild(f);
+  const d=f.contentDocument; d.open();
+  d.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(titulo||"Factura")}</title><style>
+    @page{size:A4;margin:16mm}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Arial,sans-serif;
+         font-size:11pt;color:#0f172a;line-height:1.45}
+    .cab{display:flex;justify-content:space-between;align-items:flex-start;gap:16mm;margin-bottom:10mm}
+    .marca{display:flex;align-items:center;gap:4mm}
+    .v{width:12mm;height:12mm;border-radius:3mm;background:#2563eb;color:#fff;font-weight:900;
+       font-size:8mm;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .nom{font-size:14pt;font-weight:800;letter-spacing:-.02em}
+    .peq{font-size:9pt;color:#475569;line-height:1.5}
+    .doc{text-align:right;flex-shrink:0}
+    .doc .t{font-size:16pt;font-weight:900;letter-spacing:.04em;color:#2563eb}
+    .doc .n{font-size:13pt;font-weight:800;margin-top:1mm}
+    .caja{border:.35mm solid #cbd5e1;border-radius:2mm;padding:4mm 5mm;margin-bottom:6mm}
+    .rot{font-size:8pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#2563eb;margin-bottom:2mm}
+    table{width:100%;border-collapse:collapse;margin-top:2mm}
+    th{font-size:8.5pt;text-transform:uppercase;letter-spacing:.06em;color:#475569;
+       text-align:left;border-bottom:.4mm solid #0f172a;padding:2mm 1.5mm}
+    td{padding:2mm 1.5mm;border-bottom:.2mm solid #e2e8f0;vertical-align:top}
+    .r{text-align:right;white-space:nowrap}
+    .tot{margin-top:5mm;margin-left:auto;width:80mm}
+    .tot tr td{border:0;padding:1.4mm 0}
+    .tot .grand td{border-top:.5mm solid #0f172a;font-size:13pt;font-weight:900;padding-top:2.5mm}
+    .pie{margin-top:10mm;font-size:8.5pt;color:#475569;border-top:.2mm solid #e2e8f0;padding-top:3mm}
+    .qr{width:26mm;height:26mm}
+    .aviso{background:#fef3c7;border:.3mm solid #f59e0b;border-radius:2mm;padding:3mm 4mm;
+           font-size:9pt;font-weight:700;margin-bottom:5mm}
+  </style></head><body>${html}</body></html>`);
+  d.close();
+  setTimeout(()=>{ try{f.contentWindow.focus();f.contentWindow.print();}catch(e){}
+                   setTimeout(()=>f.remove(),3000); },120);
+}
+
+/* Construye la factura completa a partir de la venta ya cobrada.
+
+   Todo lo que se pinta sale de la venta guardada, NO del estado actual: si el
+   dueño cambia mañana el nombre del bar o el cliente se muda, la factura ya
+   emitida debe seguir enseñando lo que decía el día que se emitió. Lo único
+   que se coge de la configuración son los datos del emisor, que se guardan
+   con la venta la primera vez (ver `emisorDeVenta`). */
+function emisorDeVenta(v){
+  if(v&&v.emisor)return v.emisor;
+  const b=ADMIN.business||{};
+  return {nombre:b.name||"", razonSocial:b.razonSocial||b.name||"", nif:b.nif||"",
+          direccion:b.direccion||"", cp:b.cp||"", municipio:b.municipio||"",
+          provincia:b.provincia||""};
+}
+
+function desgloseDeVenta(v){
+  // Si el servidor ya devolvió el desglose, ese es el bueno: es el que se
+  // remitió a Hacienda. Solo se calcula aquí cuando todavía no ha llegado.
+  if(v.fiscal&&Array.isArray(v.fiscal.desglose)&&v.fiscal.desglose.length)return v.fiscal.desglose;
+  const tipo=parseFloat(ADMIN.business.vat)||21;
+  const con=(v.items||[]).reduce((n,i)=>n+i.price*i.qty,0);
+  const base=Math.round(con/(1+tipo/100)*100)/100;
+  return [{tipo, base, cuota:Math.round((con-base)*100)/100, total:Math.round(con*100)/100}];
+}
+
+function facturaA4HTML(v){
+  const e=emisorDeVenta(v), c=v.cliente||{}, f=v.fiscal||{};
+  const des=desgloseDeVenta(v);
+  const base=des.reduce((n,d)=>n+d.base,0), cuota=des.reduce((n,d)=>n+d.cuota,0);
+  const total=Math.round((base+cuota)*100)/100;
+  const tipoIvaDe=i=>(i.tipoIva!==undefined&&i.tipoIva!==null)?i.tipoIva:(parseFloat(ADMIN.business.vat)||21);
+
+  const filas=(v.items||[]).map(i=>{
+    const bruto=i.price*i.qty-(i.descuento||0);
+    const t=tipoIvaDe(i);
+    const b=bruto/(1+t/100);
+    return `<tr><td>${esc(i.name)}</td><td class="r">${i.qty}</td>
+      <td class="r">${money(i.price)}</td>
+      ${des.length>1?`<td class="r">${t}%</td>`:""}
+      <td class="r">${money(b)}</td><td class="r">${money(bruto)}</td></tr>`;
+  }).join("");
+
+  const filasIva=des.map(d=>`<tr><td>Base ${d.tipo}%</td><td class="r">${money(d.base)}</td></tr>
+    <tr><td>IVA ${d.tipo}%</td><td class="r">${money(d.cuota)}</td></tr>`).join("");
+
+  const numero = f.numero ? `${esc(f.serie||"")}-${esc(f.numero)}` : "(pendiente de numerar)";
+  const pendiente = !f.numero
+    ? `<div class="aviso">Esta factura todavía no se ha registrado en Hacienda: se enviará
+       en cuanto haya conexión. El número definitivo puede cambiar.</div>` : "";
+
+  return `${pendiente}
+  <div class="cab">
+    <div class="marca">
+      <div class="v">V</div>
+      <div>
+        <div class="nom">${esc(e.razonSocial||e.nombre)}</div>
+        <div class="peq">
+          ${e.nif?`NIF/CIF: <b>${esc(e.nif)}</b><br>`:""}
+          ${esc(e.direccion||"")}${e.direccion?"<br>":""}
+          ${esc([e.cp,e.municipio,e.provincia].filter(Boolean).join(" · "))}
+        </div>
+      </div>
+    </div>
+    <div class="doc">
+      <div class="t">FACTURA</div>
+      <div class="n">${numero}</div>
+      <div class="peq">Fecha: ${new Date(v.ts||now()).toLocaleDateString("es-ES")}</div>
+      ${f.serie?`<div class="peq">Serie: ${esc(f.serie)}</div>`:""}
+    </div>
+  </div>
+
+  <div class="caja">
+    <div class="rot">Cliente</div>
+    <div style="font-weight:800;font-size:12pt">${esc(c.nombre||"")}</div>
+    <div class="peq">
+      NIF/CIF: <b>${esc(c.nif||"")}</b><br>
+      ${esc(c.direccion||"")}<br>
+      ${esc([c.cp,c.municipio,c.provincia].filter(Boolean).join(" · "))}
+      ${c.pais&&c.pais!=="ES"?" · "+esc(c.pais):""}
+    </div>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th>Concepto</th><th class="r">Cant.</th><th class="r">Precio</th>
+      ${des.length>1?'<th class="r">IVA</th>':""}
+      <th class="r">Base</th><th class="r">Importe</th>
+    </tr></thead>
+    <tbody>${filas}</tbody>
+  </table>
+
+  <table class="tot">
+    ${filasIva}
+    <tr class="grand"><td>TOTAL FACTURA</td><td class="r">${money(total)}</td></tr>
+  </table>
+
+  <div class="pie">
+    <div><b>Forma de pago:</b> ${esc(v.method||"")}</div>
+    ${f.qr?`<div style="display:flex;gap:5mm;align-items:center;margin-top:4mm">
+      <img class="qr" src="${f.qr.startsWith("data:")?f.qr:"data:image/png;base64,"+f.qr}" alt="QR VeriFactu">
+      <div>Factura verificable en la Sede Electrónica de la AEAT.${f.url?"<br>"+esc(f.url):""}</div>
+    </div>`:""}
+    ${!f.qr?`<div style="margin-top:3mm">${LEGAL_NOTE_TX}</div>`:""}
+  </div>`;
+}
+
+function imprimirFactura(v){
+  if(!v||!v.cliente){toast("Esa venta no tiene factura completa","bad");return;}
+  const f=v.fiscal||{};
+  imprimirA4(facturaA4HTML(v), "Factura "+((f.serie||"")+"-"+(f.numero||"")));
+}
+
 /* Aviso legal fijo del piloto: vortexPOS es gestión interna, la factura la emite
    la caja del bar. Va en TODOS los impresos y NO es editable desde el panel. */
-const LEGAL_NOTE = '<div class="c">Documento interno — no es factura</div>';
+const LEGAL_NOTE_TX = 'Documento interno — no es factura';
+const LEGAL_NOTE = '<div class="c">'+LEGAL_NOTE_TX+'</div>';
 function ticketComandaHTML(tableName,station,items){
   const b=ADMIN.business;
   const rows=items.map(i=>`<tr><td class="qty">${i.qty}×</td><td>${esc(i.name)}</td></tr>${i.notes?`<tr><td></td><td class="note">&gt;&gt; ${esc(i.notes)}</td></tr>`:""}`).join("");
@@ -2442,6 +3044,33 @@ const FISCAL={
     this.enviar();
   },
 
+  /* Factura COMPLETA (F1), a nombre de un cliente con sus datos fiscales.
+
+     Se mandan las LÍNEAS y no el total a propósito: el servidor recalcula base,
+     cuota y desglose por tipo de IVA. Si aquí se mandara el importe final, quien
+     abriera el HTML de la tablet podría facturar la cifra que le diera la gana.
+     El total de la app viaja solo como comprobación, para que el servidor cante
+     si no coinciden. */
+  encolarCompleta(venta){
+    if(!CLOUD.cfg()) return;
+    const tipoIva=parseFloat(ADMIN.business.vat)||21;
+    this.cola.push({tipo:"completa", record_id:venta.id,
+      cliente:venta.cliente,
+      metodo_pago:venta.method||"",
+      importe_total_app:venta.total,
+      lineas:(venta.items||[]).map(i=>({
+        descripcion:String(i.name||"").slice(0,80),
+        cantidad:i.qty, precio:i.price,
+        // Hoy el local tiene UN tipo de IVA configurado y se aplica a todo.
+        // El campo va por línea desde ya para que, el día que la carta lleve
+        // el tipo por producto, no haya que tocar ni la cola ni el servidor.
+        tipo_iva:(i.tipoIva!==undefined&&i.tipoIva!==null)?i.tipoIva:tipoIva,
+        descuento:i.descuento||0})),
+      intentos:0});
+    this.guardar();
+    this.enviar();
+  },
+
   /* Se llama al anular una venta. Solo hay algo que rectificar si la original
      llegó a facturarse: si el local estaba en modo comandas, no hay factura que
      dejar sin efecto y aquí no se hace nada. */
@@ -2467,15 +3096,21 @@ const FISCAL={
       while(this.cola.length){
         const p=this.cola[0];
         const rect=p.tipo==="rect";
+        const completa=p.tipo==="completa";
+        const ruta = rect     ? "/api/device/verifactu/rectificar"
+                   : completa ? "/api/device/verifactu/emitir-completa"
+                              : "/api/device/verifactu/emitir";
         let r;
         try{
-          r=await fetch(cfg.url+(rect?"/api/device/verifactu/rectificar"
-                                     :"/api/device/verifactu/emitir"),{
+          r=await fetch(cfg.url+ruta,{
             method:"POST",
             headers:{"Content-Type":"application/json","Authorization":"Bearer "+CLOUD.token},
             body:JSON.stringify(rect
               ? {record_id:p.record_id, rectifica_record_id:p.rectifica_record_id,
                  importe_total:p.importe_total, descripcion:p.descripcion}
+              : completa
+              ? {record_id:p.record_id, cliente:p.cliente, lineas:p.lineas,
+                 metodo_pago:p.metodo_pago, importe_total_app:p.importe_total_app}
               : {record_id:p.record_id, importe_total:p.importe_total,
                  descripcion:p.descripcion})});
         }catch(e){ break; }                     // sin red: se queda en cola, se reintenta
@@ -2487,6 +3122,20 @@ const FISCAL={
           // pendientes de otros tickets. Se descarta solo la que falla.
           if(rect){ this.cola.shift(); this.guardar(); FISCAL.avisarFallo(p); continue; }
           this.activo=false; this.cola=[]; this.guardar(); break;
+        }
+        if(r.status===422){
+          // Datos fiscales rechazados por el servidor. Reintentar no arregla
+          // nada: los datos son los que son. Se saca de la cola y se avisa con
+          // el motivo concreto, para que se pueda corregir la ficha y volver a
+          // facturar esa venta desde el histórico.
+          let motivo="";
+          try{ const d=await r.json();
+               const det=(d&&d.detail)||{};
+               motivo=(det.fallos||[]).join(" "); }catch(e){}
+          this.cola.shift(); this.guardar();
+          logErr("factura completa rechazada ("+p.record_id+"): "+motivo);
+          toast("⚠ La factura no se ha podido emitir: "+(motivo||"datos fiscales incorrectos"),"bad");
+          continue;
         }
         if(r.status===401){ CLOUD.token=null; break; }   // sesión caducada
         if(r.status>=500){                      // fallo del proveedor: reintentar
@@ -2500,8 +3149,13 @@ const FISCAL={
           const v=(S.sales||[]).find(x=>x.id===p.record_id);
           if(v && d.factura){                   // se guarda con la venta, para el ticket
             v.fiscal={serie:d.factura.serie, numero:d.factura.numero,
-                      url:d.factura.url_aeat, qr:d.factura.qr, estado:d.factura.estado};
+                      url:d.factura.url_aeat, qr:d.factura.qr, estado:d.factura.estado,
+                      tipo:d.factura.tipo||"F2", base:d.factura.base,
+                      cuota:d.factura.cuota, desglose:d.factura.desglose||[]};
             persist();
+            if(d.factura.tipo==="F1"){
+              toast(`Factura ${d.factura.serie}-${d.factura.numero} emitida`,"ok");
+            }
           }
         }
         this.cola.shift(); this.guardar();

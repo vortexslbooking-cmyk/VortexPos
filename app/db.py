@@ -156,6 +156,15 @@ verifactu = Table(
     Column("serie", String(20), nullable=False, default="A"),
     # Último número usado. La numeración debe ser correlativa y sin huecos.
     Column("ultimo_numero", Integer, nullable=False, default=0),
+    # ── Facturas COMPLETAS (ordinarias, tipo F1). Serie y contador APARTE.
+    # Van separadas de los tickets a propósito. El art. 6.1.a) del RD 1619/2012
+    # exige numeración correlativa DENTRO DE CADA SERIE, y el art. 15 permite
+    # series distintas. Separarlas tiene dos ventajas prácticas:
+    #   · la numeración de tickets, que ya está en marcha, no se toca;
+    #   · el bar puede enseñar al asesor las facturas completas de un tirón,
+    #     sin sacarlas de entre cientos de tickets.
+    Column("serie_completa", String(20), nullable=False, default="F"),
+    Column("ultimo_numero_completa", Integer, nullable=False, default=0),
     # Mientras esté en False, la app NO emite facturas: solo comandas.
     Column("activo", Boolean, nullable=False, default=False),
     # "test" o "produccion". En test las facturas NO tienen validez legal.
@@ -174,6 +183,27 @@ facturas = Table(
     Column("serie", String(20), nullable=False, default=""),
     Column("numero", String(20), nullable=False, default=""),
     Column("importe", Float, nullable=False, default=0.0),
+    # "F2" = simplificada (el ticket de siempre) · "F1" = completa/ordinaria
+    # · "R5" = rectificativa de simplificada. Es el mismo campo que espera el
+    # proveedor homologado, así no hay que traducir nada.
+    Column("tipo", String(4), nullable=False, default="F2"),
+    # Base y cuota TOTALES, calculadas SIEMPRE en el servidor a partir de las
+    # líneas. Nunca se guarda lo que diga la tablet: ver _desglosar().
+    Column("base", Float, nullable=False, default=0.0),
+    Column("cuota", Float, nullable=False, default=0.0),
+    # Desglose por tipo de IVA, en JSON: [{"tipo":10,"base":100.0,"cuota":10.0}]
+    # Hace falta cuando una misma factura mezcla tipos (comida al 10, bebida
+    # alcohólica al 21). El art. 6.1.f) del RD 1619/2012 obliga a desglosarlo.
+    Column("desglose", Text, nullable=False, default="[]"),
+    # ── Destinatario. Solo se rellena en las F1: una factura simplificada no
+    # lleva datos del cliente, y por eso es simplificada.
+    Column("cliente_nombre", String(200), nullable=False, default=""),
+    Column("cliente_nif", String(20), nullable=False, default=""),
+    Column("cliente_direccion", String(200), nullable=False, default=""),
+    Column("cliente_cp", String(10), nullable=False, default=""),
+    Column("cliente_municipio", String(120), nullable=False, default=""),
+    Column("cliente_provincia", String(120), nullable=False, default=""),
+    Column("cliente_pais", String(2), nullable=False, default="ES"),
     Column("estado", String(24), nullable=False, default="pendiente"),
     Column("uuid_proveedor", String(60), nullable=False, default=""),
     Column("url_aeat", Text, nullable=False, default=""),
@@ -257,6 +287,38 @@ def _migrate_sale_amount(cx):
                 {"a": amount, "t": tid, "k": kind, "r": rid})
 
 
+def _migrar_facturas_completas(cx):
+    """
+    Añade lo que necesitan las facturas completas a instalaciones anteriores.
+
+    Es puramente aditivo: ninguna factura ya emitida cambia. Las que existían
+    se quedan con tipo "F2", que es exactamente lo que eran, y con base y cuota
+    a 0 porque en su día no se guardaron desglosadas (el importe total sí está,
+    y es lo que se remitió a la AEAT).
+    """
+    from sqlalchemy import text
+    nuevas = [
+        ("verifactu", "serie_completa", "VARCHAR(20)", "'F'"),
+        ("verifactu", "ultimo_numero_completa", "INTEGER", "0"),
+        ("facturas", "tipo", "VARCHAR(4)", "'F2'"),
+        ("facturas", "base", "FLOAT", "0"),
+        ("facturas", "cuota", "FLOAT", "0"),
+        ("facturas", "desglose", "TEXT", "'[]'"),
+        ("facturas", "cliente_nombre", "VARCHAR(200)", "''"),
+        ("facturas", "cliente_nif", "VARCHAR(20)", "''"),
+        ("facturas", "cliente_direccion", "VARCHAR(200)", "''"),
+        ("facturas", "cliente_cp", "VARCHAR(10)", "''"),
+        ("facturas", "cliente_municipio", "VARCHAR(120)", "''"),
+        ("facturas", "cliente_provincia", "VARCHAR(120)", "''"),
+        ("facturas", "cliente_pais", "VARCHAR(2)", "'ES'"),
+    ]
+    for tabla, col, tipo, defecto in nuevas:
+        if not _column_exists(cx, tabla, col):
+            cx.execute(text(
+                f"ALTER TABLE {tabla} ADD COLUMN {col} {tipo} "
+                f"NOT NULL DEFAULT {defecto}"))
+
+
 def init_db():
     metadata.create_all(engine)
     from sqlalchemy import text
@@ -274,6 +336,11 @@ def init_db():
         if not _column_exists(cx, "records", "amount"):
             cx.execute(text("ALTER TABLE records ADD COLUMN amount FLOAT"))
         _migrate_sale_amount(cx)
+
+        # Migración: facturas completas (F1). Se añaden columnas con valor por
+        # defecto, sin tocar ni una fila existente. Las facturas ya emitidas se
+        # quedan como estaban y siguen siendo F2, que es lo que son.
+        _migrar_facturas_completas(cx)
 
         _seed_leads(cx)
 
