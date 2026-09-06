@@ -1949,7 +1949,12 @@ function renderBill(){
   const vr=(parseFloat(ADMIN.business.vat)||0)/100, base=total/(1+vr);
   // El selector de documento solo aparece si el local tiene la facturación
   // activa. Un bar en modo comandas no debe ver una opción que no puede usar.
-  const puedeFacturar = (typeof FISCAL!=="undefined") && FISCAL.activo;
+  // Antes esto exigia FISCAL.activo, que solo es cierto con la nube conectada y
+  // la facturacion dada de alta. Resultado: en la DEMO —donde el objetivo es
+  // justo ensenar lo que sabe hacer— la factura completa no aparecia por
+  // ninguna parte. Ahora se ofrece siempre: el documento se genera igual, y lo
+  // que cambia es si lleva numero fiscal o no, que es lo honesto.
+  const puedeFacturar = true;
   const chip = billCliente
     ? `<div class="pill" style="margin-bottom:10px;display:flex;justify-content:space-between;gap:8px;align-items:center">
          <span><b>${esc(billCliente.nombre)}</b> · ${esc(billCliente.nif)}</span>
@@ -1991,7 +1996,17 @@ function renderBill(){
 function cobrarSegunDocumento(method){
   if(billDocType!=="completa")return charge(method);
   if(billCliente)return charge(method,billCliente);
-  abrirSelectorCliente(c=>{ billCliente=c; charge(method,c); });
+  // El selector de cliente reutiliza el cajon, y cerrarlo pone activeTableId a
+  // null. Si no se guarda antes, charge() no encuentra la mesa y aborta en
+  // silencio con "esa cuenta ya se ha cobrado": el cliente queda guardado pero
+  // la factura no se emite nunca. Por eso la mesa se lleva a mano hasta el
+  // final en vez de leerla de una variable global que alguien ha limpiado.
+  const mesa = activeTableId;
+  abrirSelectorCliente(c=>{
+    billCliente = c;
+    activeTableId = mesa;
+    charge(method, c);
+  });
 }
 /* ============================================================
    SELECTOR DE CLIENTE  (solo para factura completa)
@@ -2226,7 +2241,12 @@ function moduleOn(viewId){
   // siempre vacía: molesta y hace pensar que algo no funciona.
   if(viewId==="facturas"){
     if(ADMIN.modules.facturas===false)return false;
-    return ((typeof FISCAL!=="undefined"&&FISCAL.activo)||facturasEmitidas().length>0);
+    // Se ensena si el local factura de verdad, si ya hay alguna emitida, o si
+    // estamos en modo demostracion (sin nube): en ese caso la pestana es
+    // precisamente lo que hay que poder ver.
+    const enDemo = (typeof CLOUD==="undefined") || !CLOUD.cfg();
+    return ((typeof FISCAL!=="undefined"&&FISCAL.activo) || enDemo
+            || facturasEmitidas().length>0);
   }
   return viewId==="sala"||ADMIN.modules[viewId]!==false;
 }
@@ -2241,11 +2261,19 @@ function moduleOn(viewId){
    Incluye la sesión abierta y los cierres Z ya archivados, porque a los tres
    meses la factura que te reclaman es la de marzo.
    ============================================================ */
+/* Momento del cobro. Vive en `paidAt` desde que existe sale(); `ts` se acepta
+   por si alguna venta antigua lo trae. Un solo sitio con esta regla: usarla
+   suelta en cada pantalla fue justo lo que hizo que la fecha saliera como
+   "NaN/NaN NaN:NaN" en el historial de facturas. */
+function cuandoSeCobro(v){
+  return (v && (v.paidAt || v.ts)) || 0;
+}
+
 function facturasEmitidas(){
   const out=[];
   (S.sales||[]).forEach(v=>{ if(v.cliente)out.push(v); });
   (S.closures||[]).forEach(c=>{ (c.ventas||[]).forEach(v=>{ if(v.cliente)out.push(v); }); });
-  return out.sort((a,b)=>(b.ts||0)-(a.ts||0));
+  return out.sort((a,b)=>cuandoSeCobro(b)-cuandoSeCobro(a));
 }
 
 let fFiltro={q:"",desde:"",hasta:"",serie:""};
@@ -2257,8 +2285,9 @@ function renderFacturas(){
   const lista=todas.filter(v=>{
     const f=v.fiscal||{}, c=v.cliente||{};
     if(fFiltro.serie&&f.serie!==fFiltro.serie)return false;
-    if(fFiltro.desde&&v.ts<new Date(fFiltro.desde+"T00:00:00").getTime())return false;
-    if(fFiltro.hasta&&v.ts>new Date(fFiltro.hasta+"T23:59:59").getTime())return false;
+    const cuando=cuandoSeCobro(v);
+    if(fFiltro.desde&&cuando<new Date(fFiltro.desde+"T00:00:00").getTime())return false;
+    if(fFiltro.hasta&&cuando>new Date(fFiltro.hasta+"T23:59:59").getTime())return false;
     if(!q)return true;
     return [c.nombre,c.nif,f.numero,(f.serie||"")+"-"+(f.numero||"")]
       .filter(Boolean).some(x=>String(x).toLowerCase().includes(q))
@@ -2269,7 +2298,7 @@ function renderFacturas(){
     const num=f.numero?`${esc(f.serie||"")}-${esc(f.numero)}`:`<span style="color:var(--warn)">pendiente</span>`;
     return `<tr>
       <td style="font-weight:800;white-space:nowrap">${num}</td>
-      <td style="white-space:nowrap">${fmtDate(v.ts)}</td>
+      <td style="white-space:nowrap">${fmtDate(cuandoSeCobro(v))}</td>
       <td>${esc(c.nombre||"")}<div style="font-size:12px;color:var(--muted)">${esc(c.nif||"")}</div></td>
       <td style="text-align:right;font-weight:800">${money(v.total)}</td>
       <td style="text-align:right;white-space:nowrap">
@@ -2293,7 +2322,7 @@ function renderFacturas(){
     <button class="btn btn-ghost btn-sm" id="fLimpiar">Limpiar</button>
   </div>
   <div class="pill" style="margin-bottom:12px">${lista.length} de ${todas.length} facturas · ${money(lista.reduce((n,v)=>n+v.total,0))}</div>
-  ${lista.length?`<div class="table-wrap"><table class="data"><thead>
+  ${lista.length?`<div class="table-wrap" style="overflow-x:auto"><table class="data" style="min-width:560px"><thead>
       <tr><th>Número</th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Total</th><th></th></tr>
     </thead><tbody>${filas}</tbody></table></div>`
    :emptyState(iconBook(),todas.length?"Ninguna factura coincide con el filtro.":"Todavía no se ha emitido ninguna factura completa. Se emiten al cobrar, eligiendo «Factura completa».")}
@@ -2306,7 +2335,7 @@ function verFactura(v){
   const f=v.fiscal||{}, c=v.cliente||{}, des=desgloseDeVenta(v);
   document.getElementById("drawerHead").innerHTML=`
     <div><div class="dt">Factura ${esc((f.serie||"")+"-"+(f.numero||"(pendiente)"))}</div>
-    <div class="ds">${fmtDate(v.ts)} · ${esc(v.method||"")}</div></div>
+    <div class="ds">${fmtDate(cuandoSeCobro(v))} · ${esc(v.method||"")}</div></div>
     <button class="x" id="closeDrawer">${iconX()}</button>`;
   const lineas=(v.items||[]).map(i=>`<div class="oline"><div class="top">
       <span class="onm">${i.qty}× ${esc(i.name)}</span>
@@ -2786,10 +2815,17 @@ function facturaA4HTML(v){
   const filasIva=des.map(d=>`<tr><td>Base ${d.tipo}%</td><td class="r">${money(d.base)}</td></tr>
     <tr><td>IVA ${d.tipo}%</td><td class="r">${money(d.cuota)}</td></tr>`).join("");
 
-  const numero = f.numero ? `${esc(f.serie||"")}-${esc(f.numero)}` : "(pendiente de numerar)";
-  const pendiente = !f.numero
+  const numero = f.numero ? `${esc(f.serie||"")}-${esc(f.numero)}` : "(sin numerar)";
+  // El aviso tiene que decir la verdad, y la verdad depende de si este local
+  // factura o no. Sin nube, la factura NO se va a registrar nunca: llamarla
+  // "pendiente de envío" seria mentir al cliente que se la lleva en la mano.
+  const conNube = (typeof CLOUD!=="undefined") && !!CLOUD.cfg();
+  const pendiente = f.numero ? "" : (conNube
     ? `<div class="aviso">Esta factura todavía no se ha registrado en Hacienda: se enviará
-       en cuanto haya conexión. El número definitivo puede cambiar.</div>` : "";
+       en cuanto haya conexión. El número definitivo puede cambiar.</div>`
+    : `<div class="aviso">DOCUMENTO DE MUESTRA — SIN VALOR FISCAL. Este local no tiene la
+       facturación activada, así que esta factura no lleva número ni se ha registrado en
+       Hacienda. Sirve para ver cómo queda, no para entregársela a un cliente.</div>`);
 
   return `${pendiente}
   <div class="cab">
@@ -2807,7 +2843,7 @@ function facturaA4HTML(v){
     <div class="doc">
       <div class="t">FACTURA</div>
       <div class="n">${numero}</div>
-      <div class="peq">Fecha: ${new Date(v.ts||now()).toLocaleDateString("es-ES")}</div>
+      <div class="peq">Fecha: ${new Date(cuandoSeCobro(v)||now()).toLocaleDateString("es-ES")}</div>
       ${f.serie?`<div class="peq">Serie: ${esc(f.serie)}</div>`:""}
     </div>
   </div>
