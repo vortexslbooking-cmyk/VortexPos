@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# ============================================================================
+#  vortexPOS Cloud · pre-commit — que la copia sea de verdad una copia
+#
+#  app/static/vortexpos.html y los dos proyectos moviles NO se editan a mano:
+#  son copias que genera sync-app.sh desde 01-app-pos/vortexpos.html.
+#
+#  Este hook pilla los dos accidentes que de otro modo no se notan hasta que
+#  un cliente abre la app:
+#    1. Editar la copia en vez del original. El siguiente sync la machaca y
+#       el trabajo desaparece sin dejar rastro.
+#    2. Commitear una copia vieja, dejando al servidor sirviendo una version
+#       distinta de la que tiene el repositorio de la app.
+# ============================================================================
+set -u
+RAIZ="$(git rev-parse --show-toplevel)"
+cd "$RAIZ"
+ORIGEN="../01-app-pos/vortexpos.html"
+
+git diff --cached --name-only | grep -qE '^(app/static/vortexpos\.html|apps/(android|windows)/www/index\.html)$' || exit 0
+
+if [ ! -f "$ORIGEN" ]; then
+  echo "⚠ No encuentro el original ($ORIGEN): no puedo comprobar las copias."
+  exit 0
+fi
+
+SUMA_ORIGEN="$(md5 -q "$ORIGEN" 2>/dev/null || md5sum "$ORIGEN" | cut -d' ' -f1)"
+MAL=""
+for COPIA in app/static/vortexpos.html apps/android/www/index.html apps/windows/www/index.html; do
+  [ -f "$COPIA" ] || continue
+  SUMA="$(md5 -q "$COPIA" 2>/dev/null || md5sum "$COPIA" | cut -d' ' -f1)"
+  [ "$SUMA" = "$SUMA_ORIGEN" ] || MAL="$MAL    · $COPIA
+"
+done
+
+[ -z "$MAL" ] && { echo "✓ Las tres copias coinciden con el original."; exit 0; }
+
+echo ""
+echo "✗ COMMIT DETENIDO — estas copias NO coinciden con el original:"
+echo ""
+printf "%s" "$MAL"
+echo ""
+echo "  El original es 01-app-pos/vortexpos.html. Si has editado una copia,"
+echo "  ese trabajo se va a perder en el proximo sync: pasalo al original."
+echo "  Si el original ya es correcto, solo falta regenerarlas:"
+echo ""
+echo "    ./sync-app.sh"
+echo ""
+exit 1
